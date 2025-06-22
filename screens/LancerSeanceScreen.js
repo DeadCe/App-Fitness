@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
-import { doc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, addDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 export default function LancerSeanceScreen({ route, navigation }) {
@@ -10,40 +10,33 @@ export default function LancerSeanceScreen({ route, navigation }) {
   const [performances, setPerformances] = useState({});
 
   useEffect(() => {
-  const charger = async () => {
-    try {
-      if (!idSeance) return; // <- correction ici
+    const charger = async () => {
+      try {
+        if (!idSeance) return;
 
-      const docRef = doc(db, 'seances', idSeance); // <- correction ici aussi
-      const docSnap = await getDoc(docRef);
-      if (!docSnap.exists()) throw new Error("Séance non trouvée");
+        const docRef = doc(db, 'seances', idSeance);
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) throw new Error('Séance non trouvée');
 
-      const seanceData = docSnap.data();
-      setSeance({ id: docSnap.id, ...seanceData });
+        setSeance({ id: docSnap.id, ...docSnap.data() });
 
-      // Charger les exercices associés
-      const snapshotExos = await getDocs(collection(db, 'exercices'));
-      const listeExos = snapshotExos.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const snapshotExos = await getDocs(collection(db, 'exercices'));
+        const listeExos = snapshotExos.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const map = {};
+        listeExos.forEach((exo) => { map[exo.id] = exo; });
+        setExercicesMap(map);
+      } catch (err) {
+        console.error('Erreur de chargement :', err);
+        Alert.alert('Erreur', 'Impossible de charger la séance.');
+      }
+    };
+    charger();
+  }, [idSeance]);
 
-      // Création de la map pour un accès rapide
-      const map = {};
-      listeExos.forEach(exo => { map[exo.id] = exo; });
-      setExercicesMap(map);
-    } catch (err) {
-      console.error("Erreur de chargement :", err);
-      Alert.alert("Erreur", "Impossible de charger la séance.");
-    }
-  };
-
-  charger();
-}, [idSeance]);
-
-
-
-  const allerSaisir = async (exoId) => {
+  const allerSaisir = (exoId) => {
     const utilisateur = auth.currentUser;
     if (!utilisateur) {
-      Alert.alert("Erreur", "Aucun utilisateur connecté.");
+      Alert.alert('Erreur', 'Aucun utilisateur connecté.');
       return;
     }
 
@@ -60,26 +53,48 @@ export default function LancerSeanceScreen({ route, navigation }) {
   };
 
   const terminerSeance = async () => {
-    try {
-      const utilisateur = auth.currentUser;
-      if (!utilisateur) {
-        Alert.alert("Erreur", "Aucun utilisateur connecté.");
-        return;
-      }
+  const utilisateur = auth.currentUser;
+  if (!utilisateur) {
+    Alert.alert('Erreur', 'Aucun utilisateur connecté.');
+    return;
+  }
 
-      const historique = {
-        date: new Date().toISOString(),
-        seance: seance.nom,
-        utilisateurs: [utilisateur.uid],
-        performances,
-      };
+  try {
+    const exercicesEnregistrements = (seance.exercices || [])
+      .map((exoId) => {
+        const exo = exercicesMap[exoId];
+        const perf = performances[exoId] || {};
+        const seriesNettoyees = (perf.series || [])
+          .map((s) => ({
+            poids: Number(s?.poids) || 0,
+            repetitions: Number(s?.repetitions) || 0,
+          }));
+        return {
+          idExercice: exoId,
+          nom: exo.nom || 'Sans nom',
+          performances: {
+            series: seriesNettoyees,
+          },
+        };
+      })
+      .filter((e) => e !== null);
 
-      navigation.replace('RécapitulatifSéance', { nouvelleEntree: historique });
-    } catch (err) {
-      console.error("Erreur sauvegarde performances :", err);
-      Alert.alert("Erreur", "Impossible de sauvegarder.");
-    }
-  };
+    const nouvelleEntree = {
+      date: new Date().toISOString(),
+      seance: seance.nom,
+      utilisateurId: utilisateur.uid,
+      exercices: exercicesEnregistrements,
+    };
+    console.log('Nouvelle entrée prête à être sauvegardée :', nouvelleEntree);
+
+    await addDoc(collection(db, 'historiqueSeances'), nouvelleEntree);
+    navigation.replace('RécapitulatifSéance', { nouvelleEntree });
+  } catch (err) {
+    console.error('Erreur sauvegarde séance :', err);
+    Alert.alert('Erreur', "Impossible d'enregistrer la séance.");
+  }
+};
+
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -90,7 +105,7 @@ export default function LancerSeanceScreen({ route, navigation }) {
         <Text style={styles.title}>Séance : {seance?.nom}</Text>
       </View>
 
-      {seance?.exercices?.map((exoId, i) => (
+      {seance?.exercices?.map((exoId) => (
         exercicesMap[exoId] ? (
           <TouchableOpacity
             key={exoId}

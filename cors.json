@@ -1,0 +1,7 @@
+[
+  {
+    "origin": ["http://localhost:8081", "https://app-fitness-pi.vercel.app"],
+    "method": ["GET", "POST", "PUT", "DELETE"],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -1,18 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Image } from 'react-native';
 import { collection, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
-import { db, auth, storage } from '../firebase';
-import * as ImagePicker from 'expo-image-picker';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, auth, storage } from '../firebase';
 
 export default function AjouterExerciceScreen({ route, navigation }) {
   const { id } = route.params || {};
   const [nom, setNom] = useState('');
   const [type, setType] = useState('');
   const [muscle, setMuscle] = useState('');
-  const [imageUri, setImageUri] = useState(null);    // 🖼 Nouvelle image locale
-  const [imageUrl, setImageUrl] = useState(null);    // 🖼 URL Firestore
+  const [imageFile, setImageFile] = useState(null); // Fichier image
+  const [imageUri, setImageUri] = useState(null);   // Pour l'aperçu
+  const [imageUrl, setImageUrl] = useState(null);   // URL Firestore existante
   const [chargement, setChargement] = useState(true);
+
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const chargerExistant = async () => {
@@ -24,7 +26,7 @@ export default function AjouterExerciceScreen({ route, navigation }) {
             setNom(data.nom || '');
             setType(data.type || '');
             setMuscle(data.muscle || '');
-            setImageUrl(data.imageUrl || null); // charger l’image existante
+            setImageUrl(data.imageUrl || null);
           } else {
             Alert.alert('Erreur', 'Exercice non trouvé.');
             navigation.goBack();
@@ -39,30 +41,26 @@ export default function AjouterExerciceScreen({ route, navigation }) {
     chargerExistant();
   }, [id]);
 
-  // 📸 Sélectionner une image dans la galerie
-  const choisirImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Erreur', 'Permission refusée pour accéder à la galerie.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, allowsEditing: true });
-    if (!result.canceled) {
-      setImageUri(result.assets[0].uri); // URI temporaire
+  const choisirImage = () => {
+    fileInputRef.current.click();
+  };
+
+  const handleFileSelected = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);             // Stocke le fichier
+      setImageUri(URL.createObjectURL(file)); // Aperçu local
     }
   };
 
-  // 📤 Uploader l’image dans Storage
   const uploaderImage = async () => {
-    if (!imageUri) return imageUrl || null; // Conserver l’image existante si pas de nouvelle image
-    const blob = await (await fetch(imageUri)).blob();
-    const filename = `exercices/${Date.now()}.jpg`;
+    if (!imageFile) return imageUrl || null;
+    const filename = `exercices/${Date.now()}-${imageFile.name}`;
     const imgRef = ref(storage, filename);
-    await uploadBytes(imgRef, blob);
-    return await getDownloadURL(imgRef);
+    await uploadBytes(imgRef, imageFile); // Envoi sur Firebase
+    return await getDownloadURL(imgRef);  // Récupère l'URL publique
   };
 
-  // 💾 Sauvegarder dans Firestore
   const enregistrer = async () => {
     try {
       const user = auth.currentUser;
@@ -79,15 +77,15 @@ export default function AjouterExerciceScreen({ route, navigation }) {
         muscle,
         auteur: user.uid,
         public: true,
-        imageUrl: imageUploadedUrl || '' // sauvegarder le champ imageUrl
+        imageUrl: imageUploadedUrl || '',
       };
 
       if (id) {
         await updateDoc(doc(db, 'exercices', id), nouvelExercice);
-        Alert.alert('Succès', "Exercice mis à jour !");
+        Alert.alert('Succès', 'Exercice mis à jour !');
       } else {
         await addDoc(collection(db, 'exercices'), nouvelExercice);
-        Alert.alert('Succès', "Exercice ajouté !");
+        Alert.alert('Succès', 'Exercice ajouté !');
       }
 
       navigation.goBack();
@@ -109,17 +107,43 @@ export default function AjouterExerciceScreen({ route, navigation }) {
       </View>
 
       <Text style={styles.label}>Nom</Text>
-      <TextInput style={styles.input} value={nom} onChangeText={setNom} placeholder="Nom" placeholderTextColor="#aaa" />
+      <TextInput
+        style={styles.input}
+        value={nom}
+        onChangeText={setNom}
+        placeholder="Nom"
+        placeholderTextColor="#aaa"
+      />
 
       <Text style={styles.label}>Type</Text>
-      <TextInput style={styles.input} value={type} onChangeText={setType} placeholder="Type" placeholderTextColor="#aaa" />
+      <TextInput
+        style={styles.input}
+        value={type}
+        onChangeText={setType}
+        placeholder="Type"
+        placeholderTextColor="#aaa"
+      />
 
       <Text style={styles.label}>Muscle ciblé</Text>
-      <TextInput style={styles.input} value={muscle} onChangeText={setMuscle} placeholder="Muscle" placeholderTextColor="#aaa" />
+      <TextInput
+        style={styles.input}
+        value={muscle}
+        onChangeText={setMuscle}
+        placeholder="Muscle"
+        placeholderTextColor="#aaa"
+      />
 
       <TouchableOpacity style={styles.uploadButton} onPress={choisirImage}>
         <Text style={styles.uploadButtonText}>Sélectionner une image</Text>
       </TouchableOpacity>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleFileSelected}
+      />
 
       {imageUri ? (
         <Image source={{ uri: imageUri }} style={styles.previewImage} />

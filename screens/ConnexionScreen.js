@@ -30,6 +30,39 @@ export default function ConnexionScreen({ navigation }) {
     } catch (error) {
       Alert.alert("Connexion échouée", error.message);
     }
+    const creerCompte = async () => {
+  if (!identifiant || !motDePasse || !confirmation) {
+    Alert.alert("Erreur", "Veuillez remplir tous les champs.");
+    return;
+  }
+
+  if (motDePasse !== confirmation) {
+    Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
+    return;
+  }
+
+  try {
+    const { user } = await createUserWithEmailAndPassword(auth, identifiant, motDePasse);
+
+    // Optionnel : ajoute une entrée dans Firestore
+    const { setDoc, doc } = await import('firebase/firestore');
+    const { db } = await import('../firebase');
+    await setDoc(doc(db, "utilisateurs", user.uid), {
+      identifiant: identifiant,
+      poids: null,
+      taille: null,
+      dateNaissance: null,
+    });
+
+    Alert.alert("Succès", "Compte créé avec succès !");
+    setEnCreation(false);
+    setConfirmation('');
+    setMotDePasse('');
+  } catch (error) {
+    Alert.alert("Erreur", error.message);
+  }
+};
+
   };
 
   return (

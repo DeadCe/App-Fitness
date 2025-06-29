@@ -30,11 +30,35 @@ export default function AccueilScreen({ navigation }) {
         setDernierPoids(data.poids || null);
       }
 
-      const perfSnap = await getDocs(
-        query(collection(db, "performances"), where("utilisateurId", "==", user.uid))
-      );
-      const perfList = perfSnap.docs.map(d => d.data()).sort((a, b) => new Date(b.date) - new Date(a.date));
-      setDerniereSeance(perfList[0] || null);
+      if (historiqueList.length > 0) {
+  const derniere = historiqueList[0];
+  console.log("Dernière séance trouvée :", derniere);
+
+  let nomSeance = "Séance inconnue";
+
+  if (derniere.nom) {
+    nomSeance = derniere.nom;
+  } else if (derniere.seance) {
+    nomSeance = derniere.seance;
+  } else if (derniere.idSeance) {
+    try {
+      const docSeance = await getDoc(doc(db, "seances", derniere.idSeance));
+      if (docSeance.exists()) {
+        nomSeance = docSeance.data().nom || "Séance inconnue";
+      } else {
+        nomSeance = "Séance supprimée";
+      }
+    } catch (e) {
+      console.warn("Erreur lors de la récupération de la séance :", e);
+    }
+  }
+
+  setDerniereSeance({ ...derniere, nom: nomSeance });
+}
+
+
+
+
 
       const planningSnap = await getDocs(
         query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
@@ -132,13 +156,11 @@ nvPlanning[jourSelectionne].push({ id: seance.id, nom: seance.nom });
         {/* Planning */}
         <View style={styles.card}>
   <Text style={styles.cardTitle}>Planning de la semaine</Text>
-  {[
-    ['Lun', 'Mar', 'Mer', 'Jeu'],
-    ['Ven', 'Sam', 'Dim']
-  ].map((ligne, ligneIndex) => (
-    <View key={ligneIndex} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-      {ligne.map(jour => (
-        <View key={jour} style={{ alignItems: 'center', width: 48 }}>
+  <View style={{ alignItems: 'center', width: '100%' }}>
+    {/* Ligne 1 : Lun à Jeu */}
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+      {['Lun', 'Mar', 'Mer', 'Jeu'].map(jour => (
+        <View key={jour} style={{ alignItems: 'center', width: 60 }}>
           <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
           {(planning[jour] || []).map((seance, idx) => (
             <TouchableOpacity
@@ -181,8 +203,59 @@ nvPlanning[jourSelectionne].push({ id: seance.id, nom: seance.nom });
         </View>
       ))}
     </View>
-  ))}
+
+    {/* Séparateur */}
+    <View style={{ height: 1, backgroundColor: '#00aaff', width: '90%', marginVertical: 8 }} />
+
+    {/* Ligne 2 : Ven à Dim */}
+    <View style={{ flexDirection: 'row', justifyContent: 'space-around', width: '100%' }}>
+      {['Ven', 'Sam', 'Dim'].map(jour => (
+        <View key={jour} style={{ alignItems: 'center', width: 60 }}>
+          <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
+          {(planning[jour] || []).map((seance, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={{
+                marginTop: 4,
+                backgroundColor: '#00384D',
+                borderRadius: 8,
+                padding: 4,
+                minWidth: 36,
+                minHeight: 32,
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}
+              onPress={() =>
+                navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
+              }
+              onLongPress={() => supprimerSeanceJour(jour, idx)}
+            >
+              <Text style={{ color: '#fff', fontSize: 12 }}>
+                {seance.nom || 'Séance'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            onPress={() => ouvrirAjoutSeance(jour)}
+            style={{
+              marginTop: 2,
+              backgroundColor: '#005f91',
+              borderRadius: 8,
+              padding: 2,
+              minWidth: 24,
+              minHeight: 24,
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+    </View>
+  </View>
 </View>
+
 
 
         {/* Dernier poids */}

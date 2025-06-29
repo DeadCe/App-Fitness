@@ -20,73 +20,78 @@ export default function AccueilScreen({ navigation }) {
   useFocusEffect(
   useCallback(() => {
     const charger = async () => {
-      const user = auth.currentUser;
-      if (!user) return;
+  const user = auth.currentUser;
+  if (!user) return;
 
-      const docSnap = await getDoc(doc(db, "utilisateurs", user.uid));
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setUtilisateur({ id: user.uid, ...data });
-        setDernierPoids(data.poids || null);
+  const docSnap = await getDoc(doc(db, "utilisateurs", user.uid));
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    setUtilisateur({ id: user.uid, ...data });
+    setDernierPoids(data.poids || null);
+  }
+
+  // 🔁 Chargement historique des séances (depuis historiqueSeances)
+  const historiqueSnap = await getDocs(
+    query(collection(db, "historiqueSeances"), where("utilisateurId", "==", user.uid))
+  );
+
+  const historiqueList = historiqueSnap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  if (historiqueList.length > 0) {
+    const derniere = historiqueList[0];
+
+    let nomSeance = "Séance inconnue";
+
+    if (derniere.nom) {
+      nomSeance = derniere.nom;
+    } else if (derniere.seance) {
+      nomSeance = derniere.seance;
+    } else if (derniere.idSeance) {
+      try {
+        const docSeance = await getDoc(doc(db, "seances", derniere.idSeance));
+        if (docSeance.exists()) {
+          nomSeance = docSeance.data().nom || "Séance inconnue";
+        } else {
+          nomSeance = "Séance supprimée";
+        }
+      } catch (e) {
+        console.warn("Erreur lors de la récupération de la séance :", e);
       }
-
-      if (historiqueList.length > 0) {
-  const derniere = historiqueList[0];
-  console.log("Dernière séance trouvée :", derniere);
-
-  let nomSeance = "Séance inconnue";
-
-  if (derniere.nom) {
-    nomSeance = derniere.nom;
-  } else if (derniere.seance) {
-    nomSeance = derniere.seance;
-  } else if (derniere.idSeance) {
-    try {
-      const docSeance = await getDoc(doc(db, "seances", derniere.idSeance));
-      if (docSeance.exists()) {
-        nomSeance = docSeance.data().nom || "Séance inconnue";
-      } else {
-        nomSeance = "Séance supprimée";
-      }
-    } catch (e) {
-      console.warn("Erreur lors de la récupération de la séance :", e);
     }
+
+    setDerniereSeance({ ...derniere, nom: nomSeance });
   }
 
-  setDerniereSeance({ ...derniere, nom: nomSeance });
-}
+  // 🔁 Chargement planning
+  const planningSnap = await getDocs(
+    query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
+  );
 
+  const seancesSnap = await getDocs(collection(db, "seances"));
+  const mapSeances = {};
+  seancesSnap.forEach(doc => {
+    mapSeances[doc.id] = doc.data().nom;
+  });
 
+  const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
 
+  planningSnap.forEach(doc => {
+    const d = doc.data();
+    if (p[d.jour]) {
+      const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
+      p[d.jour].push({
+        id: doc.id,
+        idSeance: d.idSeance,
+        nom: nomSeance,
+      });
+    }
+  });
 
+  setPlanning(p);
+};
 
-      const planningSnap = await getDocs(
-  query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
-);
-
-const seancesSnap = await getDocs(collection(db, "seances"));
-const mapSeances = {};
-seancesSnap.forEach(doc => {
-  mapSeances[doc.id] = doc.data().nom;
-});
-
-const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
-
-planningSnap.forEach(doc => {
-  const d = doc.data();
-  if (p[d.jour]) {
-    const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
-    p[d.jour].push({
-      id: doc.id,
-      idSeance: d.idSeance,
-      nom: nomSeance,
-    });
-  }
-});
-
-setPlanning(p);
-
-    };
 
     charger();
   }, [])

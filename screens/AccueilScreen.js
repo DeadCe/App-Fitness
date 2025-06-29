@@ -131,53 +131,59 @@ nvPlanning[jourSelectionne].push({ id: seance.id, nom: seance.nom });
 
         {/* Planning */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Planning de la semaine</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(jour => (
-              <View key={jour} style={{ alignItems: 'center', width: 48 }}>
-                <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
-                {(planning[jour] || []).map((seance, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={{
-                      marginTop: 4,
-                      backgroundColor: '#00384D',
-                      borderRadius: 8,
-                      padding: 4,
-                      minWidth: 36,
-                      minHeight: 32,
-                      justifyContent: 'center',
-                      alignItems: 'center'
-                    }}
-                    onPress={() =>
-                      navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
-                    }
-                    onLongPress={() => supprimerSeanceJour(jour, idx)}
-                  >
-                    <Text style={{ color: '#fff', fontSize: 12 }}>
-                      {seance.nom || 'Séance'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                  onPress={() => ouvrirAjoutSeance(jour)}
-                  style={{
-                    marginTop: 2,
-                    backgroundColor: '#005f91',
-                    borderRadius: 8,
-                    padding: 2,
-                    minWidth: 24,
-                    minHeight: 24,
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
+  <Text style={styles.cardTitle}>Planning de la semaine</Text>
+  {[
+    ['Lun', 'Mar', 'Mer', 'Jeu'],
+    ['Ven', 'Sam', 'Dim']
+  ].map((ligne, ligneIndex) => (
+    <View key={ligneIndex} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+      {ligne.map(jour => (
+        <View key={jour} style={{ alignItems: 'center', width: 48 }}>
+          <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
+          {(planning[jour] || []).map((seance, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={{
+                marginTop: 4,
+                backgroundColor: '#00384D',
+                borderRadius: 8,
+                padding: 4,
+                minWidth: 36,
+                minHeight: 32,
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}
+              onPress={() =>
+                navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
+              }
+              onLongPress={() => supprimerSeanceJour(jour, idx)}
+            >
+              <Text style={{ color: '#fff', fontSize: 12 }}>
+                {seance.nom || 'Séance'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            onPress={() => ouvrirAjoutSeance(jour)}
+            style={{
+              marginTop: 2,
+              backgroundColor: '#005f91',
+              borderRadius: 8,
+              padding: 2,
+              minWidth: 24,
+              minHeight: 24,
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
+          </TouchableOpacity>
         </View>
+      ))}
+    </View>
+  ))}
+</View>
+
 
         {/* Dernier poids */}
         <View style={styles.card}>

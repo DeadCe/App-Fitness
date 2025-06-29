@@ -61,30 +61,31 @@ export default function AccueilScreen({ navigation }) {
 
 
       const planningSnap = await getDocs(
-        query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
-      );
+  query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
+);
 
-      const seancesSnap = await getDocs(collection(db, "seances"));
-      const mapSeances = {};
-      seancesSnap.forEach(doc => {
-        mapSeances[doc.id] = doc.data().nom;
-      });
+const seancesSnap = await getDocs(collection(db, "seances"));
+const mapSeances = {};
+seancesSnap.forEach(doc => {
+  mapSeances[doc.id] = doc.data().nom;
+});
 
-      const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
+const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
 
-      planningSnap.forEach(doc => {
-        const d = doc.data();
-        if (p[d.jour]) {
-          const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
-          p[d.jour].push({
-            id: doc.id,
-            idSeance: d.idSeance,
-            nom: nomSeance,
-          });
-        }
-      });
+planningSnap.forEach(doc => {
+  const d = doc.data();
+  if (p[d.jour]) {
+    const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
+    p[d.jour].push({
+      id: doc.id,
+      idSeance: d.idSeance,
+      nom: nomSeance,
+    });
+  }
+});
 
-      setPlanning(p);
+setPlanning(p);
+
     };
 
     charger();

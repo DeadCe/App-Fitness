@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'reac
 import { CommonActions } from '@react-navigation/native';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { collection, addDoc } from 'firebase/firestore';
-import { auth } from '../firebase'; 
+import { auth, db } from '../firebase'; // Assure-toi que db est bien exporté dans firebase.js
 
 export default function ConnexionScreen({ navigation }) {
   const [identifiant, setIdentifiant] = useState('');
@@ -30,41 +30,39 @@ export default function ConnexionScreen({ navigation }) {
     } catch (error) {
       Alert.alert("Connexion échouée", error.message);
     }
-    const creerCompte = async () => {
-  if (!identifiant || !motDePasse || !confirmation) {
-    Alert.alert("Erreur", "Veuillez remplir tous les champs.");
-    return;
-  }
+  };
 
-  if (motDePasse !== confirmation) {
-    Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
-    return;
-  }
+  const creerCompte = async () => {
+    if (!identifiant || !motDePasse || !confirmation) {
+      Alert.alert("Erreur", "Veuillez remplir tous les champs.");
+      return;
+    }
 
-  try {
-    const userCredential = await createUserWithEmailAndPassword(auth, identifiant, motDePasse);
-    const user = userCredential.user;
+    if (motDePasse !== confirmation) {
+      Alert.alert("Erreur", "Les mots de passe ne correspondent pas.");
+      return;
+    }
 
-    // Ajout dans la base Firestore
-    await addDoc(collection(db, "utilisateurs"), {
-      identifiant: identifiant,
-      email: user.email,
-      uid: user.uid,
-      dateCreation: new Date()
-    });
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, identifiant, motDePasse);
+      const user = userCredential.user;
 
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Root' }],
-      })
-    );
-  } catch (error) {
-    Alert.alert("Erreur lors de la création du compte", error.message);
-  }
-};
+      await addDoc(collection(db, "utilisateurs"), {
+        identifiant: identifiant,
+        email: user.email,
+        uid: user.uid,
+        dateCreation: new Date()
+      });
 
-
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'Root' }],
+        })
+      );
+    } catch (error) {
+      Alert.alert("Erreur lors de la création du compte", error.message);
+    }
   };
 
   return (
@@ -165,4 +163,3 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: 'bold' },
   link: { color: '#00aaff', marginTop: 15, textAlign: 'center' }
 });
- 

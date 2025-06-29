@@ -42,26 +42,28 @@ export default function ConnexionScreen({ navigation }) {
   }
 
   try {
-    const { user } = await createUserWithEmailAndPassword(auth, identifiant, motDePasse);
+    const userCredential = await createUserWithEmailAndPassword(auth, identifiant, motDePasse);
+    const user = userCredential.user;
 
-    // Optionnel : ajoute une entrée dans Firestore
-    const { setDoc, doc } = await import('firebase/firestore');
-    const { db } = await import('../firebase');
-    await setDoc(doc(db, "utilisateurs", user.uid), {
+    // Ajout dans la base Firestore
+    await addDoc(collection(db, "utilisateurs"), {
       identifiant: identifiant,
-      poids: null,
-      taille: null,
-      dateNaissance: null,
+      email: user.email,
+      uid: user.uid,
+      dateCreation: new Date()
     });
 
-    Alert.alert("Succès", "Compte créé avec succès !");
-    setEnCreation(false);
-    setConfirmation('');
-    setMotDePasse('');
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Root' }],
+      })
+    );
   } catch (error) {
-    Alert.alert("Erreur", error.message);
+    Alert.alert("Erreur lors de la création du compte", error.message);
   }
 };
+
 
   };
 

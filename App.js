@@ -1,3 +1,4 @@
+// App.js
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
@@ -5,7 +6,8 @@ import { createDrawerNavigator } from '@react-navigation/drawer';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar as RNStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
 
 // Import des écrans
 import AccueilScreen from './screens/AccueilScreen';
@@ -54,19 +56,18 @@ function DrawerRoot() {
 }
 
 export default function App() {
-  const [initialScreen, setInitialScreen] = useState(null);
-  const [isReady, setIsReady] = useState(false);
+  const [utilisateur, setUtilisateur] = useState(null);
+  const [chargement, setChargement] = useState(true);
 
   useEffect(() => {
-    const checkConnexion = async () => {
-      const data = await AsyncStorage.getItem('utilisateurConnecté');
-      setInitialScreen(data ? 'Root' : 'Connexion');
-      setIsReady(true); // <--- Ne pas afficher tant qu'on n'a pas cette info
-    };
-    checkConnexion();
+    const unsubscribe = onAuthStateChanged(auth, user => {
+      setUtilisateur(user);
+      setChargement(false);
+    });
+    return unsubscribe;
   }, []);
 
-  if (!isReady) return null; // <--- Fix : évite de charger avant d'avoir décidé quel écran lancer
+  if (chargement) return null; // On attend la détection de l'état de connexion
 
   return (
     <>
@@ -74,9 +75,12 @@ export default function App() {
       <StatusBar style="light" />
 
       <NavigationContainer>
-        <Stack.Navigator initialRouteName={initialScreen} screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="Connexion" component={ConnexionScreen} />
-          <Stack.Screen name="Root" component={DrawerRoot} />
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {utilisateur ? (
+            <Stack.Screen name="Root" component={DrawerRoot} />
+          ) : (
+            <Stack.Screen name="Connexion" component={ConnexionScreen} />
+          )}
           <Stack.Screen name="AjouterExercice" component={AjouterExerciceScreen} />
           <Stack.Screen name="AjouterSeance" component={AjouterSeanceScreen} />
           <Stack.Screen name="SelectionSeance" component={SelectionSeanceScreen} />

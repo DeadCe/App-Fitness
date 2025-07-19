@@ -15,9 +15,15 @@ export default function SaisieExerciceScreen({ route, navigation }) {
   }
 
   // Initialisation des séries pour chaque utilisateur (en vrai, il n'y en aura qu'un ici)
-  const [data, setData] = useState(
-    utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }])
-  );
+  const [data, setData] = useState(() => {
+  if (route.params?.performancesExistantes) {
+    return utilisateursChoisis.map((u) => {
+      const perf = route.params.performancesExistantes;
+      return perf?.series ?? [{ poids: 0, repetitions: 8 }];
+    });
+  }
+  return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
+});
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];

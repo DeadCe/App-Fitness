@@ -4,60 +4,37 @@ import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 
 import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
-  const { indexExercice, utilisateursChoisis = [], onSave, idExercice } = route.params || {};
+  const { indexExercice, utilisateursChoisis = [], onSave, exerciceId } = route.params || {};
 
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
+  const [dernierePerf, setDernierePerf] = useState(null);
 
-  // Si pas d'utilisateur transmis, affiche un message propre :
-  if (!utilisateursChoisis || utilisateursChoisis.length === 0) {
-    return (
-      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e"}}>
-        <Text style={{ color: 'white' }}>Aucun utilisateur sélectionné</Text>
-      </View>
-    );
-  }
+  const auth = getAuth();
+  const firestore = getFirestore();
+  const utilisateur = auth.currentUser;
 
+  // Récupérer la dernière performance enregistrée
   useEffect(() => {
-    const chargerDernierePerf = async () => {
-      const db = getFirestore();
-      const auth = getAuth();
-      const user = auth.currentUser;
+    const fetchDernierePerf = async () => {
+      if (!utilisateur || !exerciceId) return;
 
-      if (!user || !idExercice) {
-        // Fallback sans données
-        setData(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const q = query(
-          collection(db, 'historiqueSeances'),
-          where('utilisateurId', '==', user.uid),
-          where('idExercice', '==', idExercice),
-          orderBy('date', 'desc'),
-          limit(1)
-        );
-        const snapshot = await getDocs(q);
-
-        if (!snapshot.empty) {
-          const doc = snapshot.docs[0].data();
-          const series = doc.series || [{ poids: 0, repetitions: 8 }];
-          setData(utilisateursChoisis.map(() => [...series]));
-        } else {
-          setData(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
-        }
-      } catch (e) {
-        console.log('Erreur chargement performance précédente', e);
-        setData(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
-      } finally {
-        setLoading(false);
+      const historiquesRef = collection(firestore, 'historiqueSeance');
+      const q = query(
+        historiquesRef,
+        where('utilisateurId', '==', utilisateur.uid),
+        where('exerciceId', '==', exerciceId),
+        orderBy('timestamp', 'desc'),
+        limit(1)
+      );
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0].data();
+        setDernierePerf(doc.series);
       }
     };
 
-    chargerDernierePerf();
-  }, []);
+    fetchDernierePerf();
+  }, [utilisateur, exerciceId]);
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];
@@ -81,45 +58,40 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     navigation.goBack();
   };
 
-  if (loading) {
+  if (utilisateursChoisis.length === 0) {
     return (
-      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e"}}>
-        <Text style={{ color: 'white' }}>Chargement des données...</Text>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e" }}>
+        <Text style={{ color: 'white' }}>Aucun utilisateur sélectionné</Text>
       </View>
     );
   }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: 60,
-        marginBottom: 10,
-        position: 'relative'
-      }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 60, marginBottom: 10, position: 'relative' }}>
         <TouchableOpacity
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: 50,
-            height: 50,
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 10,
-          }}
+          style={{ position: 'absolute', left: 0, top: 0, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', zIndex: 10 }}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           onPress={() => navigation.goBack()}
         >
           <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
         </TouchableOpacity>
-
         <Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>
           Saisie des performances
         </Text>
       </View>
+
+      {dernierePerf && (
+        <View style={styles.utilisateurBloc}>
+          <Text style={{ color: '#fff', marginBottom: 5 }}>Dernière performance :</Text>
+          {dernierePerf.map((serie, i) => (
+            <Text key={i} style={{ color: '#aaa' }}>
+              Série {i + 1} : {serie.poids} kg × {serie.repetitions} rép
+            </Text>
+          ))}
+        </View>
+      )}
+
       {utilisateursChoisis.map((utilisateur, i) => (
         <View key={i} style={styles.utilisateurBloc}>
           <Text style={styles.nom}>{utilisateur.nom}</Text>
@@ -147,6 +119,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       ))}
+
       <TouchableOpacity onPress={valider} style={styles.button}>
         <Text style={styles.buttonText}>Valider</Text>
       </TouchableOpacity>
@@ -159,12 +132,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e1e1e',
     padding: 20,
     flexGrow: 1
-  },
-  title: {
-    fontSize: 20,
-    color: '#ffffff',
-    fontWeight: 'bold',
-    marginBottom: 20
   },
   utilisateurBloc: {
     backgroundColor: '#2a2a2a',

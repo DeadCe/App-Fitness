@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput } from 'react-native';
+import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
-  // Sécurité : valeur par défaut pour utilisateursChoisis
-  const { indexExercice, utilisateursChoisis = [], onSave } = route.params || {};
+  const { indexExercice, utilisateursChoisis = [], onSave, idExercice } = route.params || {};
+
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   // Si pas d'utilisateur transmis, affiche un message propre :
   if (!utilisateursChoisis || utilisateursChoisis.length === 0) {
@@ -14,16 +18,46 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     );
   }
 
-  // Initialisation des séries pour chaque utilisateur (en vrai, il n'y en aura qu'un ici)
-  const [data, setData] = useState(() => {
-  if (route.params?.performancesExistantes) {
-    return utilisateursChoisis.map((u) => {
-      const perf = route.params.performancesExistantes;
-      return perf?.series ?? [{ poids: 0, repetitions: 8 }];
-    });
-  }
-  return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
-});
+  useEffect(() => {
+    const chargerDernierePerf = async () => {
+      const db = getFirestore();
+      const auth = getAuth();
+      const user = auth.currentUser;
+
+      if (!user || !idExercice) {
+        // Fallback sans données
+        setData(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const q = query(
+          collection(db, 'historiqueSeances'),
+          where('utilisateurId', '==', user.uid),
+          where('idExercice', '==', idExercice),
+          orderBy('date', 'desc'),
+          limit(1)
+        );
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+          const doc = snapshot.docs[0].data();
+          const series = doc.series || [{ poids: 0, repetitions: 8 }];
+          setData(utilisateursChoisis.map(() => [...series]));
+        } else {
+          setData(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
+        }
+      } catch (e) {
+        console.log('Erreur chargement performance précédente', e);
+        setData(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    chargerDernierePerf();
+  }, []);
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];
@@ -47,6 +81,14 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     navigation.goBack();
   };
 
+  if (loading) {
+    return (
+      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e"}}>
+        <Text style={{ color: 'white' }}>Chargement des données...</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={{
@@ -58,21 +100,21 @@ export default function SaisieExerciceScreen({ route, navigation }) {
         position: 'relative'
       }}>
         <TouchableOpacity
-  style={{
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10, // S'assure qu'elle est bien cliquable
-  }}
-  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-  onPress={() => navigation.goBack()}
->
-  <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
-</TouchableOpacity>
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: 50,
+            height: 50,
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10,
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
+        </TouchableOpacity>
 
         <Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>
           Saisie des performances

@@ -42,7 +42,6 @@ export default function LancerSeanceScreen({ route, navigation }) {
 
     navigation.navigate('SaisieExercice', {
       idExercice: exoId,
-      exerciceId: exoID,
       utilisateursChoisis: [utilisateur],
       performancesExistantes: performances[exoId],
       onSave: (nouvellePerf) => {

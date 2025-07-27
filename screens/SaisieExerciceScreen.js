@@ -20,38 +20,50 @@ export default function SaisieExerciceScreen({ route, navigation }) {
   const [lastPerf, setLastPerf] = useState(null);
 
   useEffect(() => {
-    const fetchLastPerf = async () => {
-      try {
-        const db = getFirestore();
-        const auth = getAuth();
-        const user = auth.currentUser;
-        if (!user || !route.params?.idExercice) return;
+  const fetchLastPerf = async () => {
+    try {
+      const db = getFirestore();
+      const auth = getAuth();
+      const user = auth.currentUser;
 
-        const q = query(
-          collection(db, "historiqueSeance"),
-          where("utilisateurId", "==", user.uid),
-          orderBy("date", "desc"),
-          limit(5)
+      // 🔍 Vérifie si user et idExercice sont bien présents
+      console.log("USER ID :", user?.uid);
+      console.log("EXERCICE ID RECHERCHÉ :", route.params?.idExercice);
+
+      if (!user || !route.params?.idExercice) return;
+
+      const q = query(
+        collection(db, "historiqueSeance"),
+        where("utilisateurId", "==", user.uid),
+        orderBy("date", "desc"),
+        limit(5)
+      );
+
+      const querySnapshot = await getDocs(q);
+      console.log("NOMBRE DE SÉANCES TROUVÉES :", querySnapshot.docs.length);
+
+      for (const doc of querySnapshot.docs) {
+        const seance = doc.data();
+        console.log("SÉANCE SCANNÉE :", seance);
+
+        const exerciceTrouve = seance.exercices.find(
+          (ex) => ex.idExercice === route.params.idExercice
         );
 
-        const querySnapshot = await getDocs(q);
-        for (const doc of querySnapshot.docs) {
-          const seance = doc.data();
-          const exerciceTrouve = seance.exercices.find(
-            (ex) => ex.idExercice === route.params.idExercice
-          );
-          if (exerciceTrouve) {
-            setLastPerf(exerciceTrouve.performances?.series ?? null);
-            break;
-          }
+        if (exerciceTrouve) {
+          console.log("EXERCICE TROUVÉ AVEC PERFORMANCES :", exerciceTrouve);
+          setLastPerf(exerciceTrouve.performances?.series ?? null);
+          break;
         }
-      } catch (e) {
-        console.error("Erreur récupération perf précédente :", e);
       }
-    };
+    } catch (e) {
+      console.error("ERREUR récupération perf précédente :", e);
+    }
+  };
 
-    fetchLastPerf();
-  }, [route.params?.idExercice]);
+  fetchLastPerf();
+}, [route.params?.idExercice]);
+
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];

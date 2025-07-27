@@ -4,45 +4,54 @@ import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 
 import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
-  const { indexExercice, utilisateursChoisis = [], onSave, idExercice } = route.params || {};
-  const [data, setData] = useState(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
+  const { indexExercice, utilisateursChoisis = [], onSave } = route.params || {};
+  const utilisateur = utilisateursChoisis[0]; // normalement un seul utilisateur
+
+  const [data, setData] = useState(() => {
+    if (route.params?.performancesExistantes) {
+      return utilisateursChoisis.map((u) => {
+        const perf = route.params.performancesExistantes;
+        return perf?.series ?? [{ poids: 0, repetitions: 8 }];
+      });
+    }
+    return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
+  });
+
   const [lastPerf, setLastPerf] = useState(null);
 
-  // Récupérer les anciennes perfs
   useEffect(() => {
     const fetchLastPerf = async () => {
       try {
         const db = getFirestore();
         const auth = getAuth();
         const user = auth.currentUser;
-        if (!user || !idExercice) return;
+        if (!user || !route.params?.idExercice) return;
 
         const q = query(
-          collection(db, 'historiqueSeance'),
-          where('utilisateurId', '==', user.uid),
-          orderBy('date', 'desc'),
+          collection(db, "historiqueSeance"),
+          where("utilisateurId", "==", user.uid),
+          orderBy("date", "desc"),
           limit(5)
         );
 
         const querySnapshot = await getDocs(q);
         for (const doc of querySnapshot.docs) {
-          const exercices = doc.data().exercices || [];
-          const exercice = exercices.find((ex) => ex.idExercice === idExercice);
-          if (exercice?.performances?.series) {
-            setLastPerf({
-              date: doc.data().date?.toDate?.() || new Date(doc.data().date),
-              series: exercice.performances.series,
-            });
+          const seance = doc.data();
+          const exerciceTrouve = seance.exercices.find(
+            (ex) => ex.idExercice === route.params.idExercice
+          );
+          if (exerciceTrouve) {
+            setLastPerf(exerciceTrouve.performances?.series ?? null);
             break;
           }
         }
-      } catch (err) {
-        console.log('Erreur fetch perf précédente:', err);
+      } catch (e) {
+        console.error("Erreur récupération perf précédente :", e);
       }
     };
 
     fetchLastPerf();
-  }, [idExercice]);
+  }, [route.params?.idExercice]);
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];
@@ -66,36 +75,58 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     navigation.goBack();
   };
 
+  if (!utilisateursChoisis || utilisateursChoisis.length === 0) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e" }}>
+        <Text style={{ color: 'white' }}>Aucun utilisateur sélectionné</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerText}>Saisie des performances</Text>
-      </View>
-
-      {/* Encart dernière perf */}
+      {/* Encart perf précédente */}
       {lastPerf && (
-        <View style={styles.lastPerfContainer}>
-          <Text style={styles.lastPerfTitle}>Dernière séance :</Text>
-          <Text style={styles.lastPerfDate}>
-            {new Date(lastPerf.date).toLocaleDateString('fr-FR')}
-          </Text>
-          {lastPerf.series.map((serie, i) => (
+        <View style={styles.lastPerfBox}>
+          <Text style={styles.lastPerfTitle}>Dernières performances :</Text>
+          {lastPerf.map((serie, i) => (
             <Text key={i} style={styles.lastPerfText}>
-              Série {i + 1} : {serie.poids} kg × {serie.repetitions}
+              Série {i + 1} : {serie.poids} kg x {serie.repetitions} reps
             </Text>
           ))}
         </View>
       )}
 
-      {/* Saisie */}
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 60,
+        marginBottom: 10,
+        position: 'relative'
+      }}>
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: 50,
+            height: 50,
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10,
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
+        </TouchableOpacity>
+
+        <Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>
+          Saisie des performances
+        </Text>
+      </View>
+
       {utilisateursChoisis.map((utilisateur, i) => (
         <View key={i} style={styles.utilisateurBloc}>
           <Text style={styles.nom}>{utilisateur.nom}</Text>
@@ -137,52 +168,21 @@ const styles = StyleSheet.create({
     padding: 20,
     flexGrow: 1
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 60,
-    marginBottom: 10,
-    position: 'relative'
-  },
-  backButton: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10
-  },
-  backArrow: {
-    fontSize: 26,
-    color: '#fff',
-    marginBottom: 2
-  },
-  headerText: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center'
-  },
-  lastPerfContainer: {
-    backgroundColor: '#2d2d2d',
+  lastPerfBox: {
+    backgroundColor: '#333',
+    padding: 15,
     borderRadius: 10,
-    padding: 10,
-    marginBottom: 15
+    marginBottom: 20,
   },
   lastPerfTitle: {
     color: '#00ffcc',
-    fontWeight: 'bold'
-  },
-  lastPerfDate: {
-    color: '#ccc',
-    marginBottom: 5
+    fontWeight: 'bold',
+    marginBottom: 8,
+    fontSize: 16
   },
   lastPerfText: {
-    color: '#eee'
+    color: '#fff',
+    fontSize: 14,
   },
   utilisateurBloc: {
     backgroundColor: '#2a2a2a',

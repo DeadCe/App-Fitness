@@ -4,49 +4,36 @@ import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 
 import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
-  const { indexExercice, utilisateursChoisis = [], onSave, idExercice } = route.params || {};
-  const utilisateurConnecte = getAuth().currentUser;
+  const { indexExercice, utilisateursChoisis = [], idExercice } = route.params || {};
 
-  const [data, setData] = useState(() => {
-    if (route.params?.performancesExistantes) {
-      return utilisateursChoisis.map(() => {
-        const perf = route.params.performancesExistantes;
-        return perf?.series ?? [{ poids: 0, repetitions: 8 }];
-      });
-    }
-    return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
-  });
+  const [data, setData] = useState(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
+  const [lastPerf, setLastPerf] = useState(null);
+  const auth = getAuth();
+  const db = getFirestore();
 
-  const [precedentesSeries, setPrecedentesSeries] = useState(null);
-
+  // Récupération des dernières perfs
   useEffect(() => {
-    const chargerDernieresSeries = async () => {
-      try {
-        const db = getFirestore();
-        const q = query(
-          collection(db, 'historiqueSeances'),
-          where('utilisateurId', '==', utilisateurConnecte.uid),
-          orderBy('date', 'desc'),
-          limit(10)
-        );
+    const chargerDernieresPerfs = async () => {
+      if (!idExercice || !auth.currentUser) return;
 
-        const querySnapshot = await getDocs(q);
-        for (const doc of querySnapshot.docs) {
-          const exercices = doc.data().exercices || [];
-          const exercice = exercices.find((e) => e.idExercice === idExercice);
-          if (exercice && exercice.series) {
-            setPrecedentesSeries(exercice.series);
-            break;
-          }
+      const historiqueRef = collection(db, 'historiqueSeance');
+      const q = query(
+        historiqueRef,
+        where('utilisateurId', '==', auth.currentUser.uid),
+        orderBy('date', 'desc'),
+        limit(5) // Pour optimiser un peu la recherche
+      );
+      const snapshot = await getDocs(q);
+      for (let doc of snapshot.docs) {
+        const data = doc.data();
+        const exercice = data.exercices?.find((e) => e.idExercice === idExercice);
+        if (exercice?.performances?.series?.length) {
+          setLastPerf(exercice.performances.series);
+          break;
         }
-      } catch (e) {
-        console.error("Erreur récupération dernières séries :", e);
       }
     };
-
-    if (idExercice && utilisateurConnecte) {
-      chargerDernieresSeries();
-    }
+    chargerDernieresPerfs();
   }, [idExercice]);
 
   const ajouterSerie = (indexUtilisateur) => {
@@ -67,26 +54,33 @@ export default function SaisieExerciceScreen({ route, navigation }) {
       utilisateur: u.nom,
       series: data[i],
     }));
-    if (onSave) onSave(performances[0]);
+    if (route.params?.onSave) route.params.onSave(performances[0]);
     navigation.goBack();
   };
-
-  if (!utilisateursChoisis || utilisateursChoisis.length === 0) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e" }}>
-        <Text style={{ color: 'white' }}>Aucun utilisateur sélectionné</Text>
-      </View>
-    );
-  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Saisie des performances</Text>
       </View>
+
+      {/* Affichage des dernières perfs */}
+      {lastPerf && (
+        <View style={styles.lastPerfContainer}>
+          <Text style={styles.lastPerfTitle}>Dernière performance :</Text>
+          {lastPerf.map((serie, index) => (
+            <Text key={index} style={styles.lastPerfText}>
+              Série {index + 1} : {serie.poids} kg x {serie.repetitions} rép
+            </Text>
+          ))}
+        </View>
+      )}
 
       {utilisateursChoisis.map((utilisateur, i) => (
         <View key={i} style={styles.utilisateurBloc}>
@@ -113,22 +107,8 @@ export default function SaisieExerciceScreen({ route, navigation }) {
           <TouchableOpacity onPress={() => ajouterSerie(i)} style={styles.ajouter}>
             <Text style={styles.ajouterText}>+ Ajouter une série</Text>
           </TouchableOpacity>
-
-          {precedentesSeries && (
-            <View style={{ marginTop: 10 }}>
-              <Text style={{ color: '#ccc', fontSize: 12, fontStyle: 'italic' }}>
-                Dernière séance :
-              </Text>
-              {precedentesSeries.map((serie, index) => (
-                <Text key={index} style={{ color: '#ccc', fontSize: 12 }}>
-                  Série {index + 1} : {serie.poids} kg × {serie.repetitions} rép
-                </Text>
-              ))}
-            </View>
-          )}
         </View>
       ))}
-
       <TouchableOpacity onPress={valider} style={styles.button}>
         <Text style={styles.buttonText}>Valider</Text>
       </TouchableOpacity>
@@ -158,7 +138,12 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10
+    zIndex: 10,
+  },
+  backText: {
+    fontSize: 26,
+    color: '#fff',
+    marginBottom: 2
   },
   headerTitle: {
     fontSize: 20,
@@ -166,6 +151,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
     textAlign: 'center'
+  },
+  lastPerfContainer: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 15
+  },
+  lastPerfTitle: {
+    color: '#00ccff',
+    fontWeight: 'bold',
+    marginBottom: 5
+  },
+  lastPerfText: {
+    color: '#fff'
   },
   utilisateurBloc: {
     backgroundColor: '#2a2a2a',

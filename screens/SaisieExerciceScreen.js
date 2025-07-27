@@ -33,7 +33,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
       if (!user || !route.params?.idExercice) return;
 
       const q = query(
-        collection(db, "historiqueSeance"),
+        collection(db, "historiqueSeances"),
         where("utilisateurId", "==", user.uid),
         orderBy("date", "desc"),
         limit(5)

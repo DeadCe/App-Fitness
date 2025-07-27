@@ -4,36 +4,44 @@ import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 
 import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
-  const { indexExercice, utilisateursChoisis = [], idExercice } = route.params || {};
-
+  const { indexExercice, utilisateursChoisis = [], onSave, idExercice } = route.params || {};
   const [data, setData] = useState(utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]));
   const [lastPerf, setLastPerf] = useState(null);
-  const auth = getAuth();
-  const db = getFirestore();
 
-  // Récupération des dernières perfs
+  // Récupérer les anciennes perfs
   useEffect(() => {
-    const chargerDernieresPerfs = async () => {
-      if (!idExercice || !auth.currentUser) return;
+    const fetchLastPerf = async () => {
+      try {
+        const db = getFirestore();
+        const auth = getAuth();
+        const user = auth.currentUser;
+        if (!user || !idExercice) return;
 
-      const historiqueRef = collection(db, 'historiqueSeance');
-      const q = query(
-        historiqueRef,
-        where('utilisateurId', '==', auth.currentUser.uid),
-        orderBy('date', 'desc'),
-        limit(5) // Pour optimiser un peu la recherche
-      );
-      const snapshot = await getDocs(q);
-      for (let doc of snapshot.docs) {
-        const data = doc.data();
-        const exercice = data.exercices?.find((e) => e.idExercice === idExercice);
-        if (exercice?.performances?.series?.length) {
-          setLastPerf(exercice.performances.series);
-          break;
+        const q = query(
+          collection(db, 'historiqueSeance'),
+          where('utilisateurId', '==', user.uid),
+          orderBy('date', 'desc'),
+          limit(5)
+        );
+
+        const querySnapshot = await getDocs(q);
+        for (const doc of querySnapshot.docs) {
+          const exercices = doc.data().exercices || [];
+          const exercice = exercices.find((ex) => ex.idExercice === idExercice);
+          if (exercice?.performances?.series) {
+            setLastPerf({
+              date: doc.data().date?.toDate?.() || new Date(doc.data().date),
+              series: exercice.performances.series,
+            });
+            break;
+          }
         }
+      } catch (err) {
+        console.log('Erreur fetch perf précédente:', err);
       }
     };
-    chargerDernieresPerfs();
+
+    fetchLastPerf();
   }, [idExercice]);
 
   const ajouterSerie = (indexUtilisateur) => {
@@ -54,34 +62,40 @@ export default function SaisieExerciceScreen({ route, navigation }) {
       utilisateur: u.nom,
       series: data[i],
     }));
-    if (route.params?.onSave) route.params.onSave(performances[0]);
+    if (onSave) onSave(performances[0]);
     navigation.goBack();
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.backText}>←</Text>
+          <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Saisie des performances</Text>
+        <Text style={styles.headerText}>Saisie des performances</Text>
       </View>
 
-      {/* Affichage des dernières perfs */}
+      {/* Encart dernière perf */}
       {lastPerf && (
         <View style={styles.lastPerfContainer}>
-          <Text style={styles.lastPerfTitle}>Dernière performance :</Text>
-          {lastPerf.map((serie, index) => (
-            <Text key={index} style={styles.lastPerfText}>
-              Série {index + 1} : {serie.poids} kg x {serie.repetitions} rép
+          <Text style={styles.lastPerfTitle}>Dernière séance :</Text>
+          <Text style={styles.lastPerfDate}>
+            {new Date(lastPerf.date).toLocaleDateString('fr-FR')}
+          </Text>
+          {lastPerf.series.map((serie, i) => (
+            <Text key={i} style={styles.lastPerfText}>
+              Série {i + 1} : {serie.poids} kg × {serie.repetitions}
             </Text>
           ))}
         </View>
       )}
 
+      {/* Saisie */}
       {utilisateursChoisis.map((utilisateur, i) => (
         <View key={i} style={styles.utilisateurBloc}>
           <Text style={styles.nom}>{utilisateur.nom}</Text>
@@ -109,6 +123,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       ))}
+
       <TouchableOpacity onPress={valider} style={styles.button}>
         <Text style={styles.buttonText}>Valider</Text>
       </TouchableOpacity>
@@ -138,14 +153,14 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    zIndex: 10
   },
-  backText: {
+  backArrow: {
     fontSize: 26,
     color: '#fff',
     marginBottom: 2
   },
-  headerTitle: {
+  headerText: {
     fontSize: 20,
     color: '#fff',
     fontWeight: 'bold',
@@ -153,18 +168,21 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   lastPerfContainer: {
-    backgroundColor: '#333',
-    borderRadius: 8,
+    backgroundColor: '#2d2d2d',
+    borderRadius: 10,
     padding: 10,
     marginBottom: 15
   },
   lastPerfTitle: {
-    color: '#00ccff',
-    fontWeight: 'bold',
+    color: '#00ffcc',
+    fontWeight: 'bold'
+  },
+  lastPerfDate: {
+    color: '#ccc',
     marginBottom: 5
   },
   lastPerfText: {
-    color: '#fff'
+    color: '#eee'
   },
   utilisateurBloc: {
     backgroundColor: '#2a2a2a',

@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView,
 import { collection, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, auth, storage } from '../firebase';
+import { Picker } from '@react-native-picker/picker';
 
 export default function AjouterExerciceScreen({ route, navigation }) {
   const { id } = route.params || {};
@@ -125,13 +126,27 @@ export default function AjouterExerciceScreen({ route, navigation }) {
       />
 
       <Text style={styles.label}>Muscle ciblé</Text>
-      <TextInput
-        style={styles.input}
-        value={muscle}
-        onChangeText={setMuscle}
-        placeholder="Muscle"
-        placeholderTextColor="#aaa"
-      />
+<View style={styles.pickerContainer}>
+  <Picker
+    selectedValue={muscle}
+    onValueChange={(itemValue) => setMuscle(itemValue)}
+    style={styles.picker}
+    dropdownIconColor="#fff"
+  >
+    <Picker.Item label="Choisir un muscle..." value="" color="#888" />
+    <Picker.Item label="Pectoraux (pecs)" value="Pectoraux" />
+    <Picker.Item label="Dos (lats, trapèzes)" value="Dos" />
+    <Picker.Item label="Épaules (deltoïdes)" value="Épaules" />
+    <Picker.Item label="Biceps" value="Biceps" />
+    <Picker.Item label="Triceps" value="Triceps" />
+    <Picker.Item label="Quadriceps (quads)" value="Quadriceps" />
+    <Picker.Item label="Ischio-jambiers (ischios)" value="Ischio-jambiers" />
+    <Picker.Item label="Mollets" value="Mollets" />
+    <Picker.Item label="Abdominaux (abdos)" value="Abdominaux" />
+    <Picker.Item label="Fessiers (fesses)" value="Fessiers" />
+  </Picker>
+</View>
+
 
       <TouchableOpacity style={styles.uploadButton} onPress={choisirImage}>
         <Text style={styles.uploadButtonText}>Sélectionner une image</Text>
@@ -170,5 +185,8 @@ const styles = StyleSheet.create({
   uploadButtonText: { color: '#fff' },
   previewImage: { width: 200, height: 200, borderRadius: 10, marginVertical: 10, alignSelf: 'center' },
   saveButton: { backgroundColor: '#007ACC', padding: 12, borderRadius: 10, alignItems: 'center', marginTop: 30 },
-  saveButtonText: { color: '#fff', fontWeight: 'bold' }
+  saveButtonText: { color: '#fff', fontWeight: 'bold' },
+  pickerContainer: { backgroundColor: '#2a2a2a', borderRadius: 8, marginBottom: 10, overflow: 'hidden', },
+  picker: { color: '#fff', backgroundColor: '#2a2a2a', }
+
 });

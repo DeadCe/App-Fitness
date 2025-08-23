@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
+import {
+  View, Text, TouchableOpacity, ScrollView, StyleSheet,
+  Alert, Modal, FlatList
+} from 'react-native';
 import { doc, getDoc, getDocs, collection, addDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
@@ -8,16 +11,14 @@ export default function LancerSeanceScreen({ route, navigation }) {
   const [seance, setSeance] = useState(null);
   const [exercicesMap, setExercicesMap] = useState({});
   const [performances, setPerformances] = useState({});
-  const [exercicesActuels, setExercicesActuels] = useState([]);
-  const [tousLesExercices, setTousLesExercices] = useState([]);
+  const [exercicesTemp, setExercicesTemp] = useState([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [exoRemplacementIndex, setExoRemplacementIndex] = useState(null);
 
   useEffect(() => {
     const charger = async () => {
       try {
         if (!idSeance) return;
-
-        const utilisateur = auth.currentUser;
-        if (!utilisateur) return;
 
         const docRef = doc(db, 'seances', idSeance);
         const docSnap = await getDoc(docRef);
@@ -25,28 +26,21 @@ export default function LancerSeanceScreen({ route, navigation }) {
 
         const seanceData = { id: docSnap.id, ...docSnap.data() };
         setSeance(seanceData);
-        setExercicesActuels(seanceData.exercices || []);
+        setExercicesTemp(seanceData.exercices || []);
 
+        const utilisateur = auth.currentUser;
         const snapshotExos = await getDocs(collection(db, 'exercices'));
-        const listeExos = snapshotExos.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-        const accessibles = listeExos.filter(
-          (ex) => ex.auteur === utilisateur.uid || ex.public === true
-        );
+        const listeExos = snapshotExos.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(ex => ex.auteur === utilisateur.uid || ex.public === true);
 
         const map = {};
-        listeExos.forEach((exo) => {
-          map[exo.id] = exo;
-        });
-
-        setTousLesExercices(accessibles);
+        listeExos.forEach(exo => { map[exo.id] = exo; });
         setExercicesMap(map);
       } catch (err) {
         console.error('Erreur de chargement :', err);
         Alert.alert('Erreur', 'Impossible de charger la séance.');
       }
     };
-
     charger();
   }, [idSeance]);
 
@@ -70,33 +64,6 @@ export default function LancerSeanceScreen({ route, navigation }) {
     });
   };
 
-  const remplacerExercice = (index) => {
-  const autres = tousLesExercices.filter(
-    (e) => !exercicesActuels.includes(e.id)
-  );
-
-  if (autres.length === 0) {
-    console.log('Aucun autre exercice disponible');
-    return;
-  }
-
-  console.log('Exercices disponibles pour remplacement :', autres);
-};
-
-
-  const ajouterExercice = () => {
-  const disponibles = tousLesExercices.filter(
-    (e) => !exercicesActuels.includes(e.id)
-  );
-
-  if (disponibles.length === 0) {
-    console.log('Aucun exercice à ajouter');
-    return;
-  }
-
-  console.log('Exercices disponibles à ajouter :', disponibles);
-};
-
   const terminerSeance = async () => {
     const utilisateur = auth.currentUser;
     if (!utilisateur) {
@@ -105,24 +72,19 @@ export default function LancerSeanceScreen({ route, navigation }) {
     }
 
     try {
-      const exercicesEnregistrements = (exercicesActuels || [])
-        .map((exoId) => {
-          const exo = exercicesMap[exoId];
-          const perf = performances[exoId] || {};
-          const seriesNettoyees = (perf.series || []).map((s) => ({
-            poids: Number(s?.poids) || 0,
-            repetitions: Number(s?.repetitions) || 0,
-          }));
-
-          return {
-            idExercice: exoId,
-            nom: exo?.nom || 'Sans nom',
-            performances: {
-              series: seriesNettoyees,
-            },
-          };
-        })
-        .filter((e) => e !== null);
+      const exercicesEnregistrements = exercicesTemp.map((exoId) => {
+        const exo = exercicesMap[exoId];
+        const perf = performances[exoId] || {};
+        const seriesNettoyees = (perf.series || []).map((s) => ({
+          poids: Number(s?.poids) || 0,
+          repetitions: Number(s?.repetitions) || 0,
+        }));
+        return {
+          idExercice: exoId,
+          nom: exo?.nom || 'Sans nom',
+          performances: { series: seriesNettoyees },
+        };
+      });
 
       const nouvelleEntree = {
         date: new Date().toISOString(),
@@ -139,6 +101,22 @@ export default function LancerSeanceScreen({ route, navigation }) {
     }
   };
 
+  const ouvrirModal = (index = null) => {
+    setExoRemplacementIndex(index); // null = ajout
+    setModalVisible(true);
+  };
+
+  const ajouterOuRemplacerExercice = (exoId) => {
+    if (exoRemplacementIndex !== null) {
+      const temp = [...exercicesTemp];
+      temp[exoRemplacementIndex] = exoId;
+      setExercicesTemp(temp);
+    } else {
+      setExercicesTemp((prev) => [...prev, exoId]);
+    }
+    setModalVisible(false);
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -148,27 +126,48 @@ export default function LancerSeanceScreen({ route, navigation }) {
         <Text style={styles.title}>Séance : {seance?.nom}</Text>
       </View>
 
-      {exercicesActuels.map((exoId, index) =>
-        exercicesMap[exoId] ? (
-          <View key={exoId} style={styles.exerciceCard}>
-            <TouchableOpacity onPress={() => allerSaisir(exoId)}>
-              <Text style={styles.exerciceText}>{exercicesMap[exoId].nom}</Text>
-              {performances[exoId] && <Text style={styles.valide}>✅ Enregistré</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => remplacerExercice(index)}>
-              <Text style={styles.switchIcon}>🔄</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null
-      )}
+      {exercicesTemp.map((exoId, index) => (
+        <View key={index} style={styles.exerciceCard}>
+          <TouchableOpacity onPress={() => allerSaisir(exoId)}>
+            <Text style={styles.exerciceText}>{exercicesMap[exoId]?.nom || 'Exercice inconnu'}</Text>
+            {performances[exoId] && <Text style={styles.valide}>✅ Enregistré</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => ouvrirModal(index)} style={styles.switchButton}>
+            <Text style={{ color: '#00aaff' }}>🔄</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
 
-      <TouchableOpacity onPress={ajouterExercice} style={styles.addButton}>
-        <Text style={styles.buttonText}>➕ Ajouter un exercice</Text>
+      <TouchableOpacity style={styles.addButton} onPress={() => ouvrirModal(null)}>
+        <Text style={styles.buttonText}>+ Ajouter un exercice</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.button} onPress={terminerSeance}>
+      <TouchableOpacity style={styles.terminateButton} onPress={terminerSeance}>
         <Text style={styles.buttonText}>Terminer la séance</Text>
       </TouchableOpacity>
+
+      <Modal visible={modalVisible} transparent animationType="slide">
+        <View style={styles.modalBackground}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Choisir un exercice</Text>
+            <FlatList
+              data={Object.values(exercicesMap)}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  onPress={() => ajouterOuRemplacerExercice(item.id)}
+                  style={styles.modalItem}
+                >
+                  <Text style={{ color: '#fff' }}>{item.nom}</Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <Text style={{ color: '#00aaff', textAlign: 'center', marginTop: 10 }}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -176,56 +175,34 @@ export default function LancerSeanceScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { backgroundColor: '#1e1e1e', padding: 20, flexGrow: 1 },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 60,
-    marginBottom: 10,
-    position: 'relative',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    height: 60, marginBottom: 10, position: 'relative'
   },
-  backButton: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
+  backButton: { position: 'absolute', left: 0, top: 0, width: 50, height: 50, justifyContent: 'center', alignItems: 'center' },
   backText: { fontSize: 26, color: '#fff' },
-  title: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center',
-  },
+  title: { fontSize: 20, color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' },
   exerciceCard: {
-    backgroundColor: '#2a2a2a',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: '#2a2a2a', padding: 15, borderRadius: 10,
+    marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'
   },
   exerciceText: { color: '#ffffff', fontSize: 16 },
   valide: { color: '#00ff00', fontSize: 14, marginTop: 5 },
-  switchIcon: { fontSize: 22, color: '#00aaff' },
+  switchButton: { paddingHorizontal: 10 },
   addButton: {
-    backgroundColor: '#444',
-    padding: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 15,
+    backgroundColor: '#444', borderRadius: 10, padding: 15, marginTop: 10, alignItems: 'center'
   },
-  button: {
-    backgroundColor: '#007ACC',
-    borderRadius: 10,
-    padding: 15,
-    marginTop: 20,
-    alignItems: 'center',
+  terminateButton: {
+    backgroundColor: '#007ACC', borderRadius: 10, padding: 15, marginTop: 20, alignItems: 'center'
   },
   buttonText: { color: '#ffffff', fontWeight: 'bold' },
+  modalBackground: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center'
+  },
+  modalContent: {
+    backgroundColor: '#2a2a2a', padding: 20, borderRadius: 10, width: '90%', maxHeight: '80%'
+  },
+  modalTitle: { color: '#00aaff', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  modalItem: {
+    padding: 10, borderBottomWidth: 1, borderBottomColor: '#444'
+  }
 });

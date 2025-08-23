@@ -3,11 +3,14 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { Picker } from '@react-native-picker/picker';
 
 export default function ListeExercicesScreen({ navigation, route }) {
   const [exercices, setExercices] = useState([]);
   const [utilisateur, setUtilisateur] = useState(null);
   const [afficherPublics, setAfficherPublics] = useState(false);
+  const [muscleFiltre, setMuscleFiltre] = useState('');
+
   const { onSelect } = route.params || {};
 
   useEffect(() => {
@@ -31,10 +34,22 @@ export default function ListeExercicesScreen({ navigation, route }) {
 
   const exercicesFiltres = exercices.filter(e => {
     if (!utilisateur) return false;
-    return afficherPublics
-      ? e.auteur !== utilisateur.uid
-      : e.auteur === utilisateur.uid;
+    const estValide = afficherPublics ? e.auteur !== utilisateur.uid : e.auteur === utilisateur.uid;
+    const muscleOk = muscleFiltre === '' || e.muscle === muscleFiltre;
+    return estValide && muscleOk;
   });
+
+  const musclesDisponibles = [
+    '', // Pour réinitialiser le filtre
+    'Pectoraux',
+    'Dos',
+    'Biceps',
+    'Triceps',
+    'Épaules (Deltoïdes)',
+    'Jambes (Quadriceps)',
+    'Fessiers',
+    'Abdominaux',
+  ];
 
   return (
     <View style={styles.container}>
@@ -45,6 +60,18 @@ export default function ListeExercicesScreen({ navigation, route }) {
         <Text style={styles.title}>
           {afficherPublics ? 'Exercices publics' : 'Mes exercices'}
         </Text>
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={muscleFiltre}
+            style={styles.picker}
+            dropdownIconColor="#fff"
+            onValueChange={(itemValue) => setMuscleFiltre(itemValue)}
+          >
+            {musclesDisponibles.map((muscle, i) => (
+              <Picker.Item key={i} label={muscle === '' ? 'Tous les muscles' : muscle} value={muscle} />
+            ))}
+          </Picker>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -104,7 +131,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     height: 60,
     marginBottom: 20,
     position: 'relative'
@@ -125,6 +151,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     flex: 1,
     textAlign: 'center'
+  },
+  pickerContainer: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 180,
+    height: 50,
+    justifyContent: 'center'
+  },
+  picker: {
+    color: '#fff',
+    backgroundColor: '#333',
+    height: 40,
   },
   toggleButton: {
     backgroundColor: '#00384D',

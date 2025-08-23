@@ -71,50 +71,31 @@ export default function LancerSeanceScreen({ route, navigation }) {
   };
 
   const remplacerExercice = (index) => {
-    const autres = tousLesExercices.filter(
-      (e) => !exercicesActuels.includes(e.id)
-    );
+  const autres = tousLesExercices.filter(
+    (e) => !exercicesActuels.includes(e.id)
+  );
 
-    if (autres.length === 0) {
-      Alert.alert('Aucun autre exercice disponible');
-      return;
-    }
+  if (autres.length === 0) {
+    console.log('Aucun autre exercice disponible');
+    return;
+  }
 
-    Alert.alert(
-      'Remplacer exercice',
-      'Choisissez un exercice à la place :',
-      autres.map((e) => ({
-        text: e.nom,
-        onPress: () => {
-          const copie = [...exercicesActuels];
-          copie[index] = e.id;
-          setExercicesActuels(copie);
-        },
-      }))
-    );
-  };
+  console.log('Exercices disponibles pour remplacement :', autres);
+};
+
 
   const ajouterExercice = () => {
-    const disponibles = tousLesExercices.filter(
-      (e) => !exercicesActuels.includes(e.id)
-    );
+  const disponibles = tousLesExercices.filter(
+    (e) => !exercicesActuels.includes(e.id)
+  );
 
-    if (disponibles.length === 0) {
-      Alert.alert('Aucun exercice à ajouter');
-      return;
-    }
+  if (disponibles.length === 0) {
+    console.log('Aucun exercice à ajouter');
+    return;
+  }
 
-    Alert.alert(
-      'Ajouter exercice',
-      'Choisissez un exercice à ajouter :',
-      disponibles.map((e) => ({
-        text: e.nom,
-        onPress: () => {
-          setExercicesActuels([...exercicesActuels, e.id]);
-        },
-      }))
-    );
-  };
+  console.log('Exercices disponibles à ajouter :', disponibles);
+};
 
   const terminerSeance = async () => {
     const utilisateur = auth.currentUser;

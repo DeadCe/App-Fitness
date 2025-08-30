@@ -1,10 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { SafeAreaView, Text, View, TouchableOpacity, StyleSheet, ScrollView, Modal, FlatList, Alert } from 'react-native';
-import { collection, doc, deleteDoc,  getDoc, getDocs, setDoc, query, where, updateDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useCallback } from 'react';
+import { SafeAreaView, Text, View, TouchableOpacity, StyleSheet, ScrollView, Modal, FlatList } from 'react-native';
+import { collection, doc, deleteDoc, getDoc, getDocs, addDoc, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import {getAuth } from 'firebase/auth';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
+
+/* ========= Helpers ISO week (même logique que sur Planning) ========= */
+// Retourne "YYYY-Www" ex: "2025-W35"
+function getWeekKey(d = new Date()) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7; // 0 = lundi
+  date.setUTCDate(date.getUTCDate() - dayNum + 3); // jeudi ISO
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const weekNo = 1 + Math.round((date.getTime() - firstThursday.getTime()) / 604800000);
+  const year = date.getUTCFullYear();
+  return `${year}-W${String(weekNo).padStart(2, '0')}`;
+}
+function addWeeks(base, n) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + 7 * n);
+  return d;
+}
+/* ==================================================================== */
 
 export default function AccueilScreen({ navigation }) {
   const [utilisateur, setUtilisateur] = useState(null);
@@ -13,90 +31,88 @@ export default function AccueilScreen({ navigation }) {
   const [planning, setPlanning] = useState({
     Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: []
   });
+
+  /* ========= État de semaine sélectionnée ========= */
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const weekKey = getWeekKey(selectedDate);
+  /* =============================================== */
+
   const [modalVisible, setModalVisible] = useState(false);
   const [jourSelectionne, setJourSelectionne] = useState(null);
   const [seancesDisponibles, setSeancesDisponibles] = useState([]);
 
   useFocusEffect(
-  useCallback(() => {
-    const charger = async () => {
-  const user = auth.currentUser;
-  if (!user) return;
+    useCallback(() => {
+      const charger = async () => {
+        const user = auth.currentUser;
+        if (!user) return;
 
-  const docSnap = await getDoc(doc(db, "utilisateurs", user.uid));
-  if (docSnap.exists()) {
-    const data = docSnap.data();
-    setUtilisateur({ id: user.uid, ...data });
-    setDernierPoids(data.poids || null);
-  }
-
-  // 🔁 Chargement historique des séances (depuis historiqueSeances)
-  const historiqueSnap = await getDocs(
-    query(collection(db, "historiqueSeances"), where("utilisateurId", "==", user.uid))
-  );
-
-  const historiqueList = historiqueSnap.docs
-    .map(doc => ({ id: doc.id, ...doc.data() }))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  if (historiqueList.length > 0) {
-    const derniere = historiqueList[0];
-
-    let nomSeance = "Séance inconnue";
-
-    if (derniere.nom) {
-      nomSeance = derniere.nom;
-    } else if (derniere.seance) {
-      nomSeance = derniere.seance;
-    } else if (derniere.idSeance) {
-      try {
-        const docSeance = await getDoc(doc(db, "seances", derniere.idSeance));
-        if (docSeance.exists()) {
-          nomSeance = docSeance.data().nom || "Séance inconnue";
-        } else {
-          nomSeance = "Séance supprimée";
+        // Utilisateur + dernier poids
+        const docSnap = await getDoc(doc(db, "utilisateurs", user.uid));
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setUtilisateur({ id: user.uid, ...data });
+          setDernierPoids(data.poids || null);
         }
-      } catch (e) {
-        console.warn("Erreur lors de la récupération de la séance :", e);
-      }
-    }
 
-    setDerniereSeance({ ...derniere, nom: nomSeance });
-  }
+        // Dernière séance (historiqueSeances)
+        const historiqueSnap = await getDocs(
+          query(collection(db, "historiqueSeances"), where("utilisateurId", "==", user.uid))
+        );
+        const historiqueList = historiqueSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  // 🔁 Chargement planning
-  const planningSnap = await getDocs(
-    query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
+        if (historiqueList.length > 0) {
+          const derniere = historiqueList[0];
+          let nomSeance = "Séance inconnue";
+          if (derniere.nom) nomSeance = derniere.nom;
+          else if (derniere.seance) nomSeance = derniere.seance;
+          else if (derniere.idSeance) {
+            try {
+              const docSeance = await getDoc(doc(db, "seances", derniere.idSeance));
+              nomSeance = docSeance.exists() ? (docSeance.data().nom || "Séance inconnue") : "Séance supprimée";
+            } catch (e) {
+              console.warn("Erreur récupération séance :", e);
+            }
+          }
+          setDerniereSeance({ ...derniere, nom: nomSeance });
+        }
+
+        // ===== Planning de la semaine courante (filtré par weekKey) =====
+        const planningSnap = await getDocs(
+          query(
+            collection(db, "planning"),
+            where("utilisateurId", "==", user.uid),
+            where("weekKey", "==", weekKey)
+          )
+        );
+
+        // Récup noms de séances pour un affichage robuste
+        const seancesSnap = await getDocs(collection(db, "seances"));
+        const mapSeances = {};
+        seancesSnap.forEach(docu => {
+          mapSeances[docu.id] = docu.data().nom;
+        });
+
+        const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
+        planningSnap.forEach(docu => {
+          const d = docu.data();
+          if (p[d.jour]) {
+            const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
+            p[d.jour].push({
+              id: docu.id,
+              idSeance: d.idSeance,
+              nom: nomSeance,
+            });
+          }
+        });
+        setPlanning(p);
+      };
+
+      charger();
+    }, [weekKey]) // ⬅️ recharger quand on change de semaine
   );
-
-  const seancesSnap = await getDocs(collection(db, "seances"));
-  const mapSeances = {};
-  seancesSnap.forEach(doc => {
-    mapSeances[doc.id] = doc.data().nom;
-  });
-
-  const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
-
-  planningSnap.forEach(doc => {
-    const d = doc.data();
-    if (p[d.jour]) {
-      const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
-      p[d.jour].push({
-        id: doc.id,
-        idSeance: d.idSeance,
-        nom: nomSeance,
-      });
-    }
-  });
-
-  setPlanning(p);
-};
-
-
-    charger();
-  }, [])
-);
-
 
   const ouvrirAjoutSeance = async (jour) => {
     const snapshot = await getDocs(collection(db, "seances"));
@@ -107,35 +123,47 @@ export default function AccueilScreen({ navigation }) {
   };
 
   const ajouterSeanceAuJour = async (idSeance) => {
-  console.log("Ajout de la séance :", idSeance); // DEBUG
-  if (!jourSelectionne) return;
+    const user = auth.currentUser;
+    if (!user || !jourSelectionne) return;
 
-  const nvPlanning = { ...planning };
-  if (!nvPlanning[jourSelectionne]) nvPlanning[jourSelectionne] = [];
-  const seance = seancesDisponibles.find(s => s.id === idSeance);
-if (!seance) return;
-nvPlanning[jourSelectionne].push({ id: seance.id, nom: seance.nom });
+    const seance = seancesDisponibles.find(s => s.id === idSeance);
+    if (!seance) return;
 
+    // ⬇️ Persistance en base avec weekKey
+    const newDoc = await addDoc(collection(db, "planning"), {
+      utilisateurId: user.uid,
+      jour: jourSelectionne,
+      repetition: 'semaine',
+      idSeance: seance.id,
+      nom: seance.nom,
+      weekKey, // clé de semaine nécessaire
+    });
 
-  setPlanning(nvPlanning);
+    // Mise à jour locale immédiate (évite de recharger toute la collection)
+    setPlanning(prev => {
+      const next = { ...prev };
+      next[jourSelectionne] = [
+        ...(next[jourSelectionne] || []),
+        { id: newDoc.id, idSeance: seance.id, nom: seance.nom }
+      ];
+      return next;
+    });
 
-  // Mise à plat et sauvegarde
-  const planningAPlat = Object.entries(nvPlanning).flatMap(([jour, seances]) =>
-    seances.map(seance => ({ jour, idSeance: seance.id, repetition: 'semaine' }))
-  );
-  setModalVisible(false);
-};
+    setModalVisible(false);
+  };
 
   const supprimerSeanceJour = async (jour, idx) => {
-  const cible = planning[jour][idx];
-  if (!cible?.id) return;
+    const cible = planning[jour][idx];
+    if (!cible?.id) return;
+    await deleteDoc(doc(db, "planning", cible.id));
+    const nouveau = { ...planning };
+    nouveau[jour].splice(idx, 1);
+    setPlanning(nouveau);
+  };
 
-  await deleteDoc(doc(db, "planning", cible.id));
-
-  const nouveau = { ...planning };
-  nouveau[jour].splice(idx, 1);
-  setPlanning(nouveau);
-};
+  const changerSemaine = (dir) => {
+    setSelectedDate(d => addWeeks(d, dir === 'prev' ? -1 : 1));
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -161,108 +189,114 @@ nvPlanning[jourSelectionne].push({ id: seance.id, nom: seance.nom });
 
         {/* Planning */}
         <View style={styles.card}>
-  <Text style={styles.cardTitle}>Planning de la semaine</Text>
-  <View style={{ alignItems: 'center', width: '100%' }}>
-    {/* Ligne 1 : Lun à Jeu */}
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-      {['Lun', 'Mar', 'Mer', 'Jeu'].map(jour => (
-        <View key={jour} style={{ alignItems: 'center', width: 60 }}>
-          <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
-          {(planning[jour] || []).map((seance, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={{
-                marginTop: 4,
-                backgroundColor: '#00384D',
-                borderRadius: 8,
-                padding: 4,
-                minWidth: 36,
-                minHeight: 32,
-                justifyContent: 'center',
-                alignItems: 'center'
-              }}
-              onPress={() =>
-                navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
-              }
-              onLongPress={() => supprimerSeanceJour(jour, idx)}
-            >
-              <Text style={{ color: '#fff', fontSize: 12 }}>
-                {seance.nom || 'Séance'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => ouvrirAjoutSeance(jour)}
-            style={{
-              marginTop: 2,
-              backgroundColor: '#005f91',
-              borderRadius: 8,
-              padding: 2,
-              minWidth: 24,
-              minHeight: 24,
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
-          </TouchableOpacity>
+          <Text style={styles.cardTitle}>Planning de la semaine</Text>
+
+          {/* Barre de navigation de semaine */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <TouchableOpacity onPress={() => changerSemaine('prev')}><Text style={{ color:'#00aaff', fontSize:18 }}>←</Text></TouchableOpacity>
+            <Text style={{ color:'#fff' }}>{weekKey}</Text>
+            <TouchableOpacity onPress={() => changerSemaine('next')}><Text style={{ color:'#00aaff', fontSize:18 }}>→</Text></TouchableOpacity>
+          </View>
+
+          <View style={{ alignItems: 'center', width: '100%' }}>
+            {/* Ligne 1 : Lun à Jeu */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+              {['Lun', 'Mar', 'Mer', 'Jeu'].map(jour => (
+                <View key={jour} style={{ alignItems: 'center', width: 60 }}>
+                  <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
+                  {(planning[jour] || []).map((seance, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={{
+                        marginTop: 4,
+                        backgroundColor: '#00384D',
+                        borderRadius: 8,
+                        padding: 4,
+                        minWidth: 36,
+                        minHeight: 32,
+                        justifyContent: 'center',
+                        alignItems: 'center'
+                      }}
+                      onPress={() =>
+                        seance.idSeance && navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
+                      }
+                      onLongPress={() => supprimerSeanceJour(jour, idx)}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 12 }}>
+                        {seance.nom || 'Séance'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    onPress={() => ouvrirAjoutSeance(jour)}
+                    style={{
+                      marginTop: 2,
+                      backgroundColor: '#005f91',
+                      borderRadius: 8,
+                      padding: 2,
+                      minWidth: 24,
+                      minHeight: 24,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            {/* Séparateur */}
+            <View style={{ height: 1, backgroundColor: '#00aaff', width: '90%', marginVertical: 8 }} />
+
+            {/* Ligne 2 : Ven à Dim */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', width: '100%' }}>
+              {['Ven', 'Sam', 'Dim'].map(jour => (
+                <View key={jour} style={{ alignItems: 'center', width: 60 }}>
+                  <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
+                  {(planning[jour] || []).map((seance, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={{
+                        marginTop: 4,
+                        backgroundColor: '#00384D',
+                        borderRadius: 8,
+                        padding: 4,
+                        minWidth: 36,
+                        minHeight: 32,
+                        justifyContent: 'center',
+                        alignItems: 'center'
+                      }}
+                      onPress={() =>
+                        seance.idSeance && navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
+                      }
+                      onLongPress={() => supprimerSeanceJour(jour, idx)}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 12 }}>
+                        {seance.nom || 'Séance'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    onPress={() => ouvrirAjoutSeance(jour)}
+                    style={{
+                      marginTop: 2,
+                      backgroundColor: '#005f91',
+                      borderRadius: 8,
+                      padding: 2,
+                      minWidth: 24,
+                      minHeight: 24,
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          </View>
         </View>
-      ))}
-    </View>
-
-    {/* Séparateur */}
-    <View style={{ height: 1, backgroundColor: '#00aaff', width: '90%', marginVertical: 8 }} />
-
-    {/* Ligne 2 : Ven à Dim */}
-    <View style={{ flexDirection: 'row', justifyContent: 'space-around', width: '100%' }}>
-      {['Ven', 'Sam', 'Dim'].map(jour => (
-        <View key={jour} style={{ alignItems: 'center', width: 60 }}>
-          <Text style={{ color: '#00aaff', fontWeight: 'bold' }}>{jour}</Text>
-          {(planning[jour] || []).map((seance, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={{
-                marginTop: 4,
-                backgroundColor: '#00384D',
-                borderRadius: 8,
-                padding: 4,
-                minWidth: 36,
-                minHeight: 32,
-                justifyContent: 'center',
-                alignItems: 'center'
-              }}
-              onPress={() =>
-                navigation.navigate("LancerSeanceScreen", { idSeance: seance.idSeance })
-              }
-              onLongPress={() => supprimerSeanceJour(jour, idx)}
-            >
-              <Text style={{ color: '#fff', fontSize: 12 }}>
-                {seance.nom || 'Séance'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            onPress={() => ouvrirAjoutSeance(jour)}
-            style={{
-              marginTop: 2,
-              backgroundColor: '#005f91',
-              borderRadius: 8,
-              padding: 2,
-              minWidth: 24,
-              minHeight: 24,
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>+</Text>
-          </TouchableOpacity>
-        </View>
-      ))}
-    </View>
-  </View>
-</View>
-
-
 
         {/* Dernier poids */}
         <View style={styles.card}>
@@ -311,18 +345,17 @@ nvPlanning[jourSelectionne].push({ id: seance.id, nom: seance.nom });
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                   <TouchableOpacity
-  style={{
-    padding: 10,
-    backgroundColor: '#00384D',
-    marginVertical: 4,
-    borderRadius: 8,
-    width: '100%'
-  }}
-  onPress={() => ajouterSeanceAuJour(item.id)}
->
-  <Text style={{ color: '#fff', fontSize: 15 }}>{item.nom}</Text>
-</TouchableOpacity>
-
+                    style={{
+                      padding: 10,
+                      backgroundColor: '#00384D',
+                      marginVertical: 4,
+                      borderRadius: 8,
+                      width: '100%'
+                    }}
+                    onPress={() => ajouterSeanceAuJour(item.id)}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 15 }}>{item.nom}</Text>
+                  </TouchableOpacity>
                 )}
               />
             )}

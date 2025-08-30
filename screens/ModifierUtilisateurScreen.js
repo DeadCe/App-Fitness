@@ -7,6 +7,10 @@ import { collection, query, where, getDocs, orderBy, doc, getDoc, setDoc } from 
 
 const screenWidth = Dimensions.get('window').width;
 
+// helpers
+const toJSDate = (val) => (val?.toDate ? val.toDate() : new Date(val));
+const toNum = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+
 export default function ModifierUtilisateurScreen({ navigation }) {
   const isFocused = useIsFocused();
 
@@ -44,7 +48,7 @@ export default function ModifierUtilisateurScreen({ navigation }) {
       const qMes = query(
         collection(db, 'mesures'),
         where('utilisateurId', '==', currentUser.uid),
-        orderBy('date')
+        orderBy('date', 'asc') // ⬅️ tri explicite croissant
       );
       const snapshot = await getDocs(qMes);
       const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -100,20 +104,24 @@ export default function ModifierUtilisateurScreen({ navigation }) {
   const hasData = mesures.length > 0;
   const graphData = hasData
     ? {
-        labels: mesures.map((m, i) => `#${i + 1}`),
+        labels: mesures.map((m) => {
+          const d = toJSDate(m.date);
+          // labels courts et lisibles
+          return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+        }),
         datasets: [
           {
-            data: mesures.map(m => Number(m.poids || 0)),
+            data: mesures.map(m => toNum(m.poids)),
             color: () => 'rgba(255,255,255,1)',
             strokeWidth: 2,
           },
           {
-            data: mesures.map(m => Number(m.masseMusculaire || 0)),
+            data: mesures.map(m => toNum(m.masseMusculaire)),
             color: () => 'rgba(0,122,255,1)',
             strokeWidth: 2,
           },
           {
-            data: mesures.map(m => Number(m.masseGrasse || 0)),
+            data: mesures.map(m => toNum(m.masseGrasse)),
             color: () => 'rgba(255,99,132,1)',
             strokeWidth: 2,
           }
@@ -171,6 +179,9 @@ export default function ModifierUtilisateurScreen({ navigation }) {
       {derniereMesure && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Dernière mesure :</Text>
+          <Text style={styles.info}>
+            Date : {toJSDate(derniereMesure.date).toLocaleString()}
+          </Text>
           <Text style={styles.info}>Poids : {derniereMesure.poids ?? '-'} kg</Text>
           <Text style={styles.info}>Masse grasse : {derniereMesure.masseGrasse ?? '-'} %</Text>
           <Text style={styles.info}>Masse musculaire : {derniereMesure.masseMusculaire ?? '-'} %</Text>

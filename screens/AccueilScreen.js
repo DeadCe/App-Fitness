@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { SafeAreaView, Text, View, TouchableOpacity, StyleSheet, ScrollView, Modal, FlatList } from 'react-native';
 import { collection, doc, deleteDoc, getDoc, getDocs, addDoc, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useFocusEffect } from '@react-navigation/native';
 
-/* ========= Helpers ISO week (même logique que sur Planning) ========= */
-// Retourne "YYYY-Www" ex: "2025-W35"
+/* ========= Helpers ISO week & parité ========= */
 function getWeekKey(d = new Date()) {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = (date.getUTCDay() + 6) % 7; // 0 = lundi
@@ -22,7 +21,17 @@ function addWeeks(base, n) {
   d.setDate(d.getDate() + 7 * n);
   return d;
 }
-/* ==================================================================== */
+function isEvenWeek(d = new Date()) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const weekNo = 1 + Math.round((date.getTime() - firstThursday.getTime()) / 604800000);
+  return weekNo % 2 === 0;
+}
+/* ============================================ */
 
 export default function AccueilScreen({ navigation }) {
   const [utilisateur, setUtilisateur] = useState(null);
@@ -32,10 +41,9 @@ export default function AccueilScreen({ navigation }) {
     Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: []
   });
 
-  /* ========= État de semaine sélectionnée ========= */
   const [selectedDate, setSelectedDate] = useState(new Date());
   const weekKey = getWeekKey(selectedDate);
-  /* =============================================== */
+  const even = isEvenWeek(selectedDate);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [jourSelectionne, setJourSelectionne] = useState(null);
@@ -55,7 +63,7 @@ export default function AccueilScreen({ navigation }) {
           setDernierPoids(data.poids || null);
         }
 
-        // Dernière séance (historiqueSeances)
+        // Dernière séance
         const historiqueSnap = await getDocs(
           query(collection(db, "historiqueSeances"), where("utilisateurId", "==", user.uid))
         );
@@ -79,16 +87,12 @@ export default function AccueilScreen({ navigation }) {
           setDerniereSeance({ ...derniere, nom: nomSeance });
         }
 
-        // ===== Planning de la semaine courante (filtré par weekKey) =====
+        // ===== RÈGLES DE PLANNING =====
+        // On charge toutes les règles, puis on applique la logique parité/once en code
         const planningSnap = await getDocs(
-          query(
-            collection(db, "planning"),
-            where("utilisateurId", "==", user.uid),
-            where("weekKey", "==", weekKey)
-          )
+          query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
         );
 
-        // Récup noms de séances pour un affichage robuste
         const seancesSnap = await getDocs(collection(db, "seances"));
         const mapSeances = {};
         seancesSnap.forEach(docu => {
@@ -96,8 +100,25 @@ export default function AccueilScreen({ navigation }) {
         });
 
         const p = { Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] };
+
         planningSnap.forEach(docu => {
           const d = docu.data();
+
+          let applies = false;
+          if (d.repetition === 'once') {
+            applies = (d.weekKey === weekKey);
+          } else if (d.repetition === 'semaine') {
+            applies = true;
+          } else if (d.repetition === 'paire') {
+            applies = even;
+          } else if (d.repetition === 'impaire') {
+            applies = !even;
+          } else {
+            applies = true; // fallback ancien doc
+          }
+
+          if (!applies) return;
+
           if (p[d.jour]) {
             const nomSeance = mapSeances[d.idSeance] || d.nom || 'Séance';
             p[d.jour].push({
@@ -107,11 +128,12 @@ export default function AccueilScreen({ navigation }) {
             });
           }
         });
+
         setPlanning(p);
       };
 
       charger();
-    }, [weekKey]) // ⬅️ recharger quand on change de semaine
+    }, [weekKey]) // recharge quand on change de semaine via flèches
   );
 
   const ouvrirAjoutSeance = async (jour) => {
@@ -122,6 +144,7 @@ export default function AccueilScreen({ navigation }) {
     setModalVisible(true);
   };
 
+  // Ajout rapide = "toutes les semaines" par défaut
   const ajouterSeanceAuJour = async (idSeance) => {
     const user = auth.currentUser;
     if (!user || !jourSelectionne) return;
@@ -129,17 +152,14 @@ export default function AccueilScreen({ navigation }) {
     const seance = seancesDisponibles.find(s => s.id === idSeance);
     if (!seance) return;
 
-    // ⬇️ Persistance en base avec weekKey
     const newDoc = await addDoc(collection(db, "planning"), {
       utilisateurId: user.uid,
       jour: jourSelectionne,
       repetition: 'semaine',
       idSeance: seance.id,
       nom: seance.nom,
-      weekKey, // clé de semaine nécessaire
     });
 
-    // Mise à jour locale immédiate (évite de recharger toute la collection)
     setPlanning(prev => {
       const next = { ...prev };
       next[jourSelectionne] = [
@@ -191,10 +211,10 @@ export default function AccueilScreen({ navigation }) {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Planning de la semaine</Text>
 
-          {/* Barre de navigation de semaine */}
+          {/* Navigation de semaine (gardée) */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <TouchableOpacity onPress={() => changerSemaine('prev')}><Text style={{ color:'#00aaff', fontSize:18 }}>←</Text></TouchableOpacity>
-            <Text style={{ color:'#fff' }}>{weekKey}</Text>
+            <Text style={{ color:'#fff' }}>{weekKey}{even ? ' (paire)' : ' (impaire)'}</Text>
             <TouchableOpacity onPress={() => changerSemaine('next')}><Text style={{ color:'#00aaff', fontSize:18 }}>→</Text></TouchableOpacity>
           </View>
 

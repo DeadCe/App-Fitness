@@ -13,12 +13,11 @@ import {
   where,
 } from 'firebase/firestore';
 
-/* ========= MOD: helpers ISO week ========= */
-// Retourne "YYYY-Www" ex: "2025-W35"
+/* ===== Helpers ISO week (pour "once" dans la modale) ===== */
 function getWeekKey(d = new Date()) {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = (date.getUTCDay() + 6) % 7; // 0 = lundi
-  date.setUTCDate(date.getUTCDate() - dayNum + 3); // jeudi
+  date.setUTCDate(date.getUTCDate() - dayNum + 3); // jeudi ISO
   const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
   const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
   firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
@@ -31,7 +30,7 @@ function addWeeks(base, n) {
   d.setDate(d.getDate() + 7 * n);
   return d;
 }
-/* ========================================= */
+/* ======================================================== */
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const REPETITIONS = [
@@ -54,24 +53,18 @@ export default function ProgrammerSeancesScreen() {
     repetition: REPETITIONS[0].value,
   });
 
-  /* ========= MOD: état semaine sélectionnée ========= */
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const weekKey = getWeekKey(selectedDate);
-  /* ================================================ */
+  // Semaine choisie UNIQUEMENT pour "once" (dans la modale)
+  const [selectedDateOnce, setSelectedDateOnce] = useState(new Date());
+  const weekKeyOnce = getWeekKey(selectedDateOnce);
 
+  // Charge TOUTES les règles du user (semaine/paire/impaire/once)
   const chargerPlanning = async () => {
     const utilisateur = auth.currentUser;
     if (!utilisateur) return;
 
-    /* ========= MOD: filtrage par semaine ========= */
     const snapshot = await getDocs(
-      query(
-        collection(db, 'planning'),
-        where('utilisateurId', '==', utilisateur.uid),
-        where('weekKey', '==', weekKey)
-      )
+      query(collection(db, 'planning'), where('utilisateurId', '==', utilisateur.uid))
     );
-    /* ============================================ */
 
     const liste = snapshot.docs.map((docSnap) => ({
       id: docSnap.id,
@@ -93,17 +86,13 @@ export default function ProgrammerSeancesScreen() {
   useEffect(() => {
     chargerPlanning();
     chargerSeancesDispo();
-  /* ========= MOD: recharger quand la semaine change ========= */
-  }, [weekKey]);
-  /* ========================================================== */
+  }, []);
 
   const ouvrirEdition = (item, index) => {
     setEditIndex(index);
     setEditSeance({
       jour: item.jour,
-      /* ========= MOD: le Picker attend l'ID de séance, pas le nom ========= */
       seance: item.idSeance || '',
-      /* ==================================================================== */
       repetition: item.repetition,
     });
     setModalVisible(true);
@@ -124,21 +113,22 @@ export default function ProgrammerSeancesScreen() {
       return;
     }
 
-    const nouvelle = {
+    const base = {
       utilisateurId: utilisateur.uid,
       jour: editSeance.jour,
-      repetition: editSeance.repetition,
+      repetition: editSeance.repetition, // 'semaine' | 'paire' | 'impaire' | 'once'
       nom: seanceTrouvee.nom,
       idSeance: seanceTrouvee.id,
-      /* ========= MOD: on enregistre la semaine ========= */
-      weekKey,
-      /* ================================================ */
     };
 
+    const payload = editSeance.repetition === 'once'
+      ? { ...base, weekKey: weekKeyOnce }
+      : { ...base };
+
     if (editIndex !== null && planning[editIndex]?.id) {
-      await updateDoc(doc(db, "planning", planning[editIndex].id), nouvelle);
+      await updateDoc(doc(db, "planning", planning[editIndex].id), payload);
     } else {
-      await addDoc(collection(db, "planning"), nouvelle);
+      await addDoc(collection(db, "planning"), payload);
     }
 
     await chargerPlanning();
@@ -149,13 +139,12 @@ export default function ProgrammerSeancesScreen() {
       seance: '',
       repetition: REPETITIONS[0].value,
     });
+    setSelectedDateOnce(new Date());
   };
 
   const supprimer = async () => {
     if (indexASupprimer === null || !planning[indexASupprimer]?.id) return;
-
     await deleteDoc(doc(db, 'planning', planning[indexASupprimer].id));
-
     await chargerPlanning();
     setModalVisible(false);
     setConfirmVisible(false);
@@ -170,22 +159,13 @@ export default function ProgrammerSeancesScreen() {
       seance: '',
       repetition: REPETITIONS[0].value,
     });
+    setSelectedDateOnce(new Date());
     setModalVisible(true);
   };
 
   return (
     <View style={styles.container}>
-      {/* ========= MOD: mini navigation de semaine ========= */}
-      <View style={styles.weekBar}>
-        <TouchableOpacity onPress={() => setSelectedDate(d => addWeeks(d, -1))}>
-          <Text style={styles.weekArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.weekLabel}>{weekKey}</Text>
-        <TouchableOpacity onPress={() => setSelectedDate(d => addWeeks(d, 1))}>
-          <Text style={styles.weekArrow}>→</Text>
-        </TouchableOpacity>
-      </View>
-      {/* ==================================================== */}
+      {/* (flèches de semaine retirées ici comme demandé) */}
 
       <View style={styles.header}>
         <Text style={styles.title}>Programmation des séances</Text>
@@ -199,7 +179,7 @@ export default function ProgrammerSeancesScreen() {
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <Text style={{ color: '#aaa', textAlign: 'center', marginTop: 30 }}>
-            Aucune programmation pour cette semaine
+            Aucune programmation pour l’instant
           </Text>
         }
         renderItem={({ item, index }) => (
@@ -212,7 +192,10 @@ export default function ProgrammerSeancesScreen() {
               <Text style={styles.jour}>{item.jour}</Text>
               <Text style={styles.nomSeance}>{item.nom}</Text>
               <Text style={styles.repetition}>
-                {REPETITIONS.find((r) => r.value === item.repetition)?.label || ''}
+                {item.repetition === 'semaine' && 'Toutes les semaines'}
+                {item.repetition === 'paire' && 'Semaines paires'}
+                {item.repetition === 'impaire' && 'Semaines impaires'}
+                {item.repetition === 'once' && (item.weekKey ? `Une fois (${item.weekKey})` : 'Une fois')}
               </Text>
             </View>
           </TouchableOpacity>
@@ -232,6 +215,7 @@ export default function ProgrammerSeancesScreen() {
               {editIndex === null ? 'Ajouter une programmation' : 'Modifier la programmation'}
             </Text>
 
+            {/* Choix du jour */}
             <View style={{ flexDirection: 'row', marginBottom: 10, flexWrap: 'wrap' }}>
               {JOURS.map((jour) => (
                 <TouchableOpacity
@@ -244,6 +228,7 @@ export default function ProgrammerSeancesScreen() {
               ))}
             </View>
 
+            {/* Choix de la séance */}
             <View style={styles.input}>
               <Picker
                 selectedValue={editSeance.seance}
@@ -260,6 +245,7 @@ export default function ProgrammerSeancesScreen() {
               </Picker>
             </View>
 
+            {/* Choix de la répétition */}
             <View style={{ marginTop: 10 }}>
               {REPETITIONS.map((rep) => (
                 <TouchableOpacity
@@ -273,6 +259,19 @@ export default function ProgrammerSeancesScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Sélecteur de semaine visible UNIQUEMENT pour "once" */}
+            {editSeance.repetition === 'once' && (
+              <View style={[styles.weekBar, { marginTop: 12 }]}>
+                <TouchableOpacity onPress={() => setSelectedDateOnce(d => addWeeks(d, -1))}>
+                  <Text style={styles.weekArrow}>←</Text>
+                </TouchableOpacity>
+                <Text style={styles.weekLabel}>{weekKeyOnce}</Text>
+                <TouchableOpacity onPress={() => setSelectedDateOnce(d => addWeeks(d, 1))}>
+                  <Text style={styles.weekArrow}>→</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={{ flexDirection: 'row', marginTop: 18, justifyContent: 'space-between' }}>
               {editIndex !== null && (
@@ -341,11 +340,6 @@ export default function ProgrammerSeancesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e1e1e', padding: 20 },
-  /* ========= MOD: styles nav semaine ========= */
-  weekBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  weekArrow: { color: '#00aaff', fontSize: 18, paddingHorizontal: 8 },
-  weekLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  /* ========================================== */
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
   title: { flex: 1, color: '#fff', fontSize: 20, fontWeight: 'bold' },
   ajouterBtn: {
@@ -369,13 +363,16 @@ const styles = StyleSheet.create({
   },
   jour: { color: '#00aaff', fontWeight: 'bold', width: 54 },
   nomSeance: { color: '#fff', flex: 1, fontSize: 16 },
-  repetition: { color: '#ccc', fontSize: 14, minWidth: 100, textAlign: 'right' },
+  repetition: { color: '#ccc', fontSize: 14, minWidth: 120, textAlign: 'right' },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center' },
-  modalBox: { backgroundColor: '#222', borderRadius: 16, padding: 22, width: 320, maxWidth: '90%' },
+  modalBox: { backgroundColor: '#222', borderRadius: 16, padding: 22, width: 340, maxWidth: '90%' },
   jourBtn: { padding: 7, marginRight: 6, marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: '#333' },
   jourBtnActif: { backgroundColor: '#222', borderColor: '#00aaff' },
   input: { backgroundColor: '#fff', borderRadius: 8, padding: 10, marginVertical: 6 },
   repBtn: { padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#444', marginTop: 6 },
   repBtnActif: { backgroundColor: '#00384D', borderColor: '#00aaff' },
   actionBtn: { padding: 12, borderRadius: 10, minWidth: 90, alignItems: 'center', marginHorizontal: 4 },
+  weekBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  weekArrow: { color: '#00aaff', fontSize: 18, paddingHorizontal: 8 },
+  weekLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

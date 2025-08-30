@@ -8,7 +8,16 @@ import { collection, query, where, getDocs, orderBy, doc, getDoc, setDoc } from 
 const screenWidth = Dimensions.get('window').width;
 
 // helpers
-const toJSDate = (val) => (val?.toDate ? val.toDate() : new Date(val));
+const toJSDate = (val) => {
+  if (!val) return null;
+  try {
+    if (val?.toDate) return val.toDate();          // Firestore Timestamp
+    const d = new Date(val);                        // ISO string (ou autre)
+    return isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+};
 const toNum = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 
 export default function ModifierUtilisateurScreen({ navigation }) {
@@ -48,7 +57,7 @@ export default function ModifierUtilisateurScreen({ navigation }) {
       const qMes = query(
         collection(db, 'mesures'),
         where('utilisateurId', '==', currentUser.uid),
-        orderBy('date', 'asc') // ⬅️ tri explicite croissant
+        orderBy('date', 'asc') // tri explicite croissant
       );
       const snapshot = await getDocs(qMes);
       const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -98,45 +107,67 @@ export default function ModifierUtilisateurScreen({ navigation }) {
     }
   };
 
-  const derniereMesure = mesures.length > 0 ? mesures[mesures.length - 1] : null;
+  // === Préparation des points pour le graphe (robuste) ===
+  // On normalise chaque mesure : date = date || createdAt, valeurs numériques
+  const points = (mesures || [])
+    .map((m, i) => {
+      const d = toJSDate(m.date) || toJSDate(m.createdAt);
+      const poids = toNum(m.poids);
+      const mg = toNum(m.masseGrasse);
+      const mm = toNum(m.masseMusculaire);
+      return { id: m.id || String(i), d, poids, mg, mm };
+    })
+    // filtre les lignes complètement vides ET garde même si une seule valeur est non nulle
+    .filter(p => p.d && (!isNaN(p.poids) || !isNaN(p.mg) || !isNaN(p.mm)));
 
-  // Graph toujours visible (placeholder si vide)
-  const hasData = mesures.length > 0;
-  const graphData = hasData
-    ? {
-        labels: mesures.map((m) => {
-          const d = toJSDate(m.date);
-          // labels courts et lisibles
-          return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-        }),
-        datasets: [
-          {
-            data: mesures.map(m => toNum(m.poids)),
-            color: () => 'rgba(255,255,255,1)',
-            strokeWidth: 2,
-          },
-          {
-            data: mesures.map(m => toNum(m.masseMusculaire)),
-            color: () => 'rgba(0,122,255,1)',
-            strokeWidth: 2,
-          },
-          {
-            data: mesures.map(m => toNum(m.masseGrasse)),
-            color: () => 'rgba(255,99,132,1)',
-            strokeWidth: 2,
-          }
-        ],
-        legend: ['Poids', 'Masse musculaire', 'Masse grasse'],
+  // Si aucune date valide, on crée des dates artificielles (index) pour que le chart ait au moins des labels cohérents
+  const finalPoints = points.length > 0
+    ? points
+    : (mesures || []).map((m, i) => ({
+        id: m.id || String(i),
+        d: new Date(2000, 0, i + 1), // fallback visuel
+        poids: toNum(m.poids),
+        mg: toNum(m.masseGrasse),
+        mm: toNum(m.masseMusculaire),
+      }));
+
+  const hasData = finalPoints.length > 0;
+
+  const labels = hasData
+    ? finalPoints.map(p => {
+        const d = p.d;
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${dd}/${mm}`;
+      })
+    : [' '];
+
+  const graphData = {
+    labels,
+    datasets: [
+      {
+        data: hasData ? finalPoints.map(p => (isNaN(p.poids) ? 0 : p.poids)) : [0],
+        color: () => 'rgba(255,255,255,1)',
+        strokeWidth: 2,
+      },
+      {
+        data: hasData ? finalPoints.map(p => (isNaN(p.mm) ? 0 : p.mm)) : [0],
+        color: () => 'rgba(0,122,255,1)',
+        strokeWidth: 2,
+      },
+      {
+        data: hasData ? finalPoints.map(p => (isNaN(p.mg) ? 0 : p.mg)) : [0],
+        color: () => 'rgba(255,99,132,1)',
+        strokeWidth: 2,
       }
-    : {
-        labels: [' '],
-        datasets: [
-          { data: [0], color: () => 'rgba(255,255,255,0.4)', strokeWidth: 2 },
-          { data: [0], color: () => 'rgba(0,122,255,0.4)', strokeWidth: 2 },
-          { data: [0], color: () => 'rgba(255,99,132,0.4)', strokeWidth: 2 },
-        ],
-        legend: ['Poids', 'Masse musculaire', 'Masse grasse'],
-      };
+    ],
+    legend: ['Poids', 'Masse musculaire', 'Masse grasse'],
+  };
+
+  const derniereMesure =
+    finalPoints.length > 0
+      ? { date: finalPoints[finalPoints.length - 1].d, ...finalPoints[finalPoints.length - 1] }
+      : null;
 
   return (
     <ScrollView style={styles.container}>
@@ -180,11 +211,11 @@ export default function ModifierUtilisateurScreen({ navigation }) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Dernière mesure :</Text>
           <Text style={styles.info}>
-            Date : {toJSDate(derniereMesure.date).toLocaleString()}
+            Date : {derniereMesure.date.toLocaleString()}
           </Text>
-          <Text style={styles.info}>Poids : {derniereMesure.poids ?? '-'} kg</Text>
-          <Text style={styles.info}>Masse grasse : {derniereMesure.masseGrasse ?? '-'} %</Text>
-          <Text style={styles.info}>Masse musculaire : {derniereMesure.masseMusculaire ?? '-'} %</Text>
+          <Text style={styles.info}>Poids : {isNaN(derniereMesure.poids) ? '-' : derniereMesure.poids} kg</Text>
+          <Text style={styles.info}>Masse grasse : {isNaN(derniereMesure.mg) ? '-' : derniereMesure.mg} %</Text>
+          <Text style={styles.info}>Masse musculaire : {isNaN(derniereMesure.mm) ? '-' : derniereMesure.mm} %</Text>
         </View>
       )}
 

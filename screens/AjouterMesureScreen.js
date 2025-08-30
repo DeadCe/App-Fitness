@@ -1,38 +1,51 @@
 import React, { useState } from 'react';
-import {View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ScrollView} from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db, auth } from '../firebase';
-import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { auth, db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AjouterMesureScreen({ navigation }) {
   const [poids, setPoids] = useState('');
   const [masseGrasse, setMasseGrasse] = useState('');
   const [masseMusculaire, setMasseMusculaire] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const sauvegarder = async () => {
-  const user = auth.currentUser;
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Erreur", "Aucun utilisateur connecté.");
+      return;
+    }
 
-  if (!user) {
-    Alert.alert("Erreur", "Aucun utilisateur connecté.");
-    return;
-  }
+    // conversion en nombres
+    const p = poids ? Number(String(poids).replace(',', '.')) : null;
+    const mg = masseGrasse ? Number(String(masseGrasse).replace(',', '.')) : null;
+    const mm = masseMusculaire ? Number(String(masseMusculaire).replace(',', '.')) : null;
 
-  try {
-    await addDoc(collection(db, "mesures"), {
-      date: new Date().toISOString(),
-      poids,
-      masseGrasse,
-      masseMusculaire,
-      utilisateur: user.uid
-    });
+    if (p === null || Number.isNaN(p)) {
+      Alert.alert("Erreur", "Merci de renseigner un poids valide.");
+      return;
+    }
 
-    Alert.alert("Succès", "Mesure ajoutée !");
-    navigation.goBack();
-  } catch (error) {
-    console.error("Erreur Firestore :", error);
-    Alert.alert("Erreur", "Impossible d'ajouter la mesure.");
-  }
-};
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "mesures"), {
+        utilisateurId: user.uid,   // ✅ cohérent avec la lecture
+        poids: p,
+        masseGrasse: mg ?? null,
+        masseMusculaire: mm ?? null,
+        date: serverTimestamp(),   // ✅ date Firestore
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert("Succès", "Mesure ajoutée !");
+      navigation.goBack();
+    } catch (error) {
+      console.error("Erreur Firestore :", error);
+      Alert.alert("Erreur", "Impossible d'ajouter la mesure.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -43,7 +56,7 @@ export default function AjouterMesureScreen({ navigation }) {
         <Text style={styles.title}>Ajouter une mesure</Text>
       </View>
 
-      <Text style={styles.label}>Poids (kg)</Text>
+      <Text style={styles.label}>Poids (kg)*</Text>
       <TextInput
         style={styles.input}
         keyboardType="numeric"
@@ -73,8 +86,10 @@ export default function AjouterMesureScreen({ navigation }) {
         placeholderTextColor="#aaa"
       />
 
-      <TouchableOpacity style={styles.button} onPress={sauvegarder}>
-        <Text style={styles.buttonText}>Sauvegarder</Text>
+      <TouchableOpacity style={styles.button} onPress={sauvegarder} disabled={saving}>
+        <Text style={styles.buttonText}>
+          {saving ? "Enregistrement..." : "Sauvegarder"}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );

@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  RefreshControl, TextInput, ScrollView, Modal, Pressable
+  RefreshControl, ScrollView, Modal, Pressable
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getAuth } from 'firebase/auth';
@@ -14,11 +14,11 @@ import {
 const toJSDate = (v) => (v?.toDate ? v.toDate() : new Date(v));
 const fmtDate = (d) => {
   if (!d || Number.isNaN(d.getTime())) return '—';
-  const dd = String(d.getDate()).padStart(2,'0');
-  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2,'0');
-  const mi = String(d.getMinutes()).padStart(2,'0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
   return `${dd}/${mm}/${yyyy} • ${hh}:${mi}`;
 };
 const compactSeries = (seriesArr = []) =>
@@ -35,7 +35,7 @@ const compactSeries = (seriesArr = []) =>
 /* ---------- dropdown en Modal (au-dessus de tout) ---------- */
 function ExoDropdown({ value, onChange, options, label = 'Tous les exercices' }) {
   const [open, setOpen] = useState(false);
-  const selected = options.find(o => o.value === value);
+  const selected = options.find((o) => o.value === value);
 
   return (
     <>
@@ -57,24 +57,26 @@ function ExoDropdown({ value, onChange, options, label = 'Tous les exercices' })
       >
         {/* Backdrop cliquable pour fermer */}
         <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)}>
-          {/* On stoppe la propagation sur la boîte pour ne pas fermer en cliquant dedans */}
+          {/* on stoppe la propagation pour ne pas fermer en cliquant dans la box */}
           <Pressable onPress={() => {}} style={styles.modalBox}>
-            <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
-              <Text style={{ color: '#aaa', marginBottom: 8 }}>Exercice</Text>
-            </View>
-
             <ScrollView>
               <TouchableOpacity
-                onPress={() => { onChange(''); setOpen(false); }}
+                onPress={() => {
+                  onChange('');
+                  setOpen(false);
+                }}
                 style={styles.ddItem}
               >
                 <Text style={{ color: '#00aaff' }}>Tous</Text>
               </TouchableOpacity>
 
-              {options.map(opt => (
+              {options.map((opt) => (
                 <TouchableOpacity
                   key={opt.value}
-                  onPress={() => { onChange(opt.value); setOpen(false); }}
+                  onPress={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
                   style={styles.ddItem}
                 >
                   <Text style={{ color: '#fff' }}>{opt.label}</Text>
@@ -105,27 +107,29 @@ export default function HistoriqueSeancesScreen() {
   const [isPaginating, setIsPaginating] = useState(false);
 
   // filtres
-  const [search, setSearch] = useState('');
   const [onlyThisMonth, setOnlyThisMonth] = useState(false);
-  const [exos, setExos] = useState([]);               // {id, nom}
+  const [exos, setExos] = useState([]); // {id, nom}
   const [exoSelected, setExoSelected] = useState(''); // id
   const [exoSelectedName, setExoSelectedName] = useState(''); // nom pour fallback
 
   const startOfMonth = useMemo(() => {
-    const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d;
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
   }, []);
 
   const normalizeRow = (r) => {
-    const d = r.date ? toJSDate(r.date) : (r.createdAt ? toJSDate(r.createdAt) : null);
+    const d = r.date ? toJSDate(r.date) : r.createdAt ? toJSDate(r.createdAt) : null;
     const exercices = Array.isArray(r.exercices) ? r.exercices : [];
     return { id: r.id, date: d, exercices };
   };
 
-  // charger exercices (picker)
+  // charger exercices (pour le dropdown)
   const loadExercises = useCallback(async () => {
     const snap = await getDocs(collection(db, 'exercices'));
-    const list = snap.docs.map(d => ({ id: d.id, ...(d.data()||{}) }));
-    list.sort((a,b) => (a.nom||'').localeCompare(b.nom||''));
+    const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+    list.sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
     setExos(list);
   }, [db]);
 
@@ -137,7 +141,7 @@ export default function HistoriqueSeancesScreen() {
     lastDocRef.current = null;
 
     try {
-      // version idéale : dates au format Timestamp -> orderBy ok
+      // idéal : date en Timestamp → on peut orderBy
       const q1 = query(
         collection(db, 'historiqueSeances'),
         where('utilisateurId', '==', user.uid),
@@ -145,23 +149,26 @@ export default function HistoriqueSeancesScreen() {
         limit(PAGE_SIZE)
       );
       const snap1 = await getDocs(q1);
-      const docs = snap1.docs.map(d => ({ id: d.id, ...d.data(), __doc: d }));
+      const docs = snap1.docs.map((d) => ({ id: d.id, ...d.data(), __doc: d }));
       lastDocRef.current = snap1.docs.length ? snap1.docs[snap1.docs.length - 1] : null;
       setItems(docs.map(normalizeRow));
       setCanPaginate(true);
     } catch {
-      // fallback : mélange Timestamp/string -> tri client
+      // fallback : tri côté client
       const q2 = query(
         collection(db, 'historiqueSeances'),
         where('utilisateurId', '==', user.uid),
         limit(200)
       );
       const snap2 = await getDocs(q2);
-      let rows = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+      let rows = snap2.docs.map((d) => ({ id: d.id, ...d.data() }));
       rows = rows
-        .map(r => ({ ...r, _d: r.date ? toJSDate(r.date) : (r.createdAt ? toJSDate(r.createdAt) : null) }))
-        .filter(r => r._d && !Number.isNaN(r._d))
-        .sort((a,b) => b._d - a._d);
+        .map((r) => ({
+          ...r,
+          _d: r.date ? toJSDate(r.date) : r.createdAt ? toJSDate(r.createdAt) : null,
+        }))
+        .filter((r) => r._d && !Number.isNaN(r._d))
+        .sort((a, b) => b._d - a._d);
       setItems(rows.map(normalizeRow));
       setCanPaginate(false);
       lastDocRef.current = null;
@@ -190,18 +197,20 @@ export default function HistoriqueSeancesScreen() {
         lastDocRef.current = null;
         return;
       }
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data(), __doc: d }));
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), __doc: d }));
       lastDocRef.current = snap.docs[snap.docs.length - 1];
-      setItems(prev => [...prev, ...docs.map(normalizeRow)]);
+      setItems((prev) => [...prev, ...docs.map(normalizeRow)]);
     } finally {
       setIsPaginating(false);
     }
   }, [auth, db, canPaginate, isPaginating]);
 
-  useFocusEffect(useCallback(() => {
-    loadExercises();
-    loadFirst();
-  }, [loadExercises, loadFirst]));
+  useFocusEffect(
+    useCallback(() => {
+      loadExercises();
+      loadFirst();
+    }, [loadExercises, loadFirst])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -209,36 +218,34 @@ export default function HistoriqueSeancesScreen() {
     setRefreshing(false);
   };
 
-  // filtre client
+  // filtre client (par exo + par mois)
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return items.filter(it => {
+    return items.filter((it) => {
       if (onlyThisMonth && it.date && it.date < startOfMonth) return false;
 
       // filtre exo id / nom
       if (exoSelected) {
-        const hasId = (it.exercices||[]).some(ex => (ex.idExercice && ex.idExercice === exoSelected) || (ex.id && ex.id === exoSelected));
+        const hasId = (it.exercices || []).some(
+          (ex) =>
+            (ex.idExercice && ex.idExercice === exoSelected) ||
+            (ex.id && ex.id === exoSelected)
+        );
         if (!hasId) return false;
       } else if (exoSelectedName) {
-        const hasName = (it.exercices||[]).some(ex => {
+        const hasName = (it.exercices || []).some((ex) => {
           const name = (ex.nomExercice || ex.nom || ex.name || '').toLowerCase();
           return name === exoSelectedName.toLowerCase();
         });
         if (!hasName) return false;
       }
 
-      if (!term) return true;
-      const hasTerm = (it.exercices || []).some(ex => {
-        const name = (ex.nomExercice || ex.nom || ex.name || '').toLowerCase();
-        return name.includes(term);
-      });
-      return hasTerm;
+      return true;
     });
-  }, [items, search, onlyThisMonth, startOfMonth, exoSelected, exoSelectedName]);
+  }, [items, onlyThisMonth, startOfMonth, exoSelected, exoSelectedName]);
 
   const onSelectExo = (val) => {
     setExoSelected(val);
-    const found = exos.find(x => x.id === val);
+    const found = exos.find((x) => x.id === val);
     setExoSelectedName(found?.nom || '');
   };
 
@@ -246,10 +253,12 @@ export default function HistoriqueSeancesScreen() {
     const totalSeries = item.exercices.reduce((acc, ex) => {
       const s =
         (Array.isArray(ex.series) && ex.series) ||
-        (ex.performances?.series && Array.isArray(ex.performances.series) && ex.performances.series) ||
+        (ex.performances?.series &&
+          Array.isArray(ex.performances.series) &&
+          ex.performances.series) ||
         (Array.isArray(ex.sets) && ex.sets) ||
         [];
-      return acc + s.length;
+    return acc + s.length;
     }, 0);
 
     return (
@@ -267,7 +276,9 @@ export default function HistoriqueSeancesScreen() {
             const nom = ex.nomExercice || ex.nom || ex.name || 'Exercice';
             const series =
               (Array.isArray(ex.series) && ex.series) ||
-              (ex.performances?.series && Array.isArray(ex.performances.series) && ex.performances.series) ||
+              (ex.performances?.series &&
+                Array.isArray(ex.performances.series) &&
+                ex.performances.series) ||
               (Array.isArray(ex.sets) && ex.sets) ||
               [];
             return (
@@ -297,30 +308,18 @@ export default function HistoriqueSeancesScreen() {
     <View style={styles.screen}>
       <Text style={styles.title}>Historique des séances</Text>
 
-      {/* Filtres ligne 1 */}
-      <View style={styles.filters}>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Rechercher un exercice..."
-          placeholderTextColor="#888"
-          style={styles.search}
-        />
-      </View>
-
-      {/* Filtres ligne 2 */}
+      {/* Filtres : dropdown + mois en cours */}
       <View style={styles.filtersRow2}>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: '#ccc', marginBottom: 6 }}>Exercice :</Text>
           <ExoDropdown
             value={exoSelected}
             onChange={onSelectExo}
-            options={exos.map(x => ({ value: x.id, label: x.nom || 'Sans nom' }))}
+            options={exos.map((x) => ({ value: x.id, label: x.nom || 'Sans nom' }))}
           />
         </View>
 
         <TouchableOpacity
-          onPress={() => setOnlyThisMonth(v => !v)}
+          onPress={() => setOnlyThisMonth((v) => !v)}
           style={[styles.tag, onlyThisMonth && styles.tagOn]}
         >
           <Text style={{ color: onlyThisMonth ? '#001' : '#ccc' }}>Mois en cours</Text>
@@ -328,7 +327,7 @@ export default function HistoriqueSeancesScreen() {
       </View>
 
       {loading ? (
-        <View style={{ flex:1, alignItems:'center', justifyContent:'center' }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color="#00aaff" size="large" />
         </View>
       ) : (
@@ -338,7 +337,11 @@ export default function HistoriqueSeancesScreen() {
           renderItem={renderItem}
           contentContainerStyle={{ paddingBottom: 40 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00aaff" />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#00aaff"
+            />
           }
           onEndReachedThreshold={0.5}
           onEndReached={loadMore}
@@ -365,35 +368,51 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#1e1e1e', paddingHorizontal: 16, paddingTop: 16 },
   title: { color: '#fff', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
 
-  filters: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  search: {
-    flex: 1, backgroundColor: '#252525', color: '#fff', paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 10, marginRight: 8, borderColor: '#333', borderWidth: 1
-  },
+  filtersRow2: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
 
-  filtersRow2: { flexDirection: 'row', alignItems:'flex-end', gap: 8, marginBottom: 8 },
   tag: {
-    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-    borderColor: '#555', marginLeft: 8, height: 46, justifyContent: 'center'
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#555',
+    marginLeft: 8,
+    height: 46,
+    justifyContent: 'center',
   },
   tagOn: { backgroundColor: '#00aaff' },
 
   // dropdown trigger
   ddTrigger: {
-    backgroundColor: '#252525', borderColor: '#333', borderWidth: 1, borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 12,
+    backgroundColor: '#252525',
+    borderColor: '#333',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
 
   // modal dropdown
   modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', paddingHorizontal: 24
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   modalBox: {
-    backgroundColor: '#1f1f1f', borderRadius: 12, borderWidth: 1, borderColor: '#333',
-    maxHeight: '70%', width: '100%', overflow: 'hidden'
+    backgroundColor: '#1f1f1f',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+    maxHeight: '70%',
+    width: '100%',
+    overflow: 'hidden',
   },
   ddItem: {
-    paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#2a2a2a'
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a2a',
   },
 
   card: {
@@ -401,7 +420,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
     marginBottom: 12,
-    borderWidth: 1, borderColor: '#333'
+    borderWidth: 1,
+    borderColor: '#333',
   },
   date: { color: '#00aaff', fontWeight: 'bold', marginBottom: 8 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },

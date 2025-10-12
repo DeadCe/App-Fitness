@@ -54,6 +54,7 @@ function DrawerRoot() {
       <Drawer.Screen name="Séances" component={ListeSeancesScreen} />
       <Drawer.Screen name="Profil" component={ModifierUtilisateurScreen} options={{ title: 'Utilisateur' }} />
       <Drawer.Screen name="Paramètres" component={ParametresScreen} />
+      <Drawer.Screen name="HistoriqueSeances" component={HistoriqueSeancesScreen} options={{ title: 'Historique des séances' }} />
     </Drawer.Navigator>
   );
 }

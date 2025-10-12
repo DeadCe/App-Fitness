@@ -37,6 +37,15 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   const [lastPerf, setLastPerf] = useState(null);
 
+  // Libellé à afficher pour l'exercice
+  const exerciseLabel =
+    route.params?.nomExercice ||
+    nomExercice ||
+    route.params?.exercice?.nom ||
+    route.params?.exerciceNom ||
+    route.params?.label ||
+    'Exercice';
+
   useEffect(() => {
     const fetchLastPerf = async () => {
       try {
@@ -147,7 +156,23 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Encart perf précédente (affichage uniquement) */}
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.title}>Saisie des performances</Text>
+      </View>
+
+      {/* Nom d'exercice juste sous le titre */}
+      <Text style={styles.exerciseName}>{exerciseLabel}</Text>
+
+      {/* Encart perf précédente (désormais sous l'entête) */}
       {lastPerf && (
         <View style={styles.lastPerfBox}>
           <Text style={styles.lastPerfTitle}>Dernières performances :</Text>
@@ -158,36 +183,6 @@ export default function SaisieExerciceScreen({ route, navigation }) {
           ))}
         </View>
       )}
-
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: 60,
-        marginBottom: 10,
-        position: 'relative'
-      }}>
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: 50,
-            height: 50,
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 10,
-          }}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={{ fontSize: 26, color: '#fff', marginBottom: 2 }}>←</Text>
-        </TouchableOpacity>
-
-        <Text style={{ fontSize: 20, color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>
-          Saisie des performances
-        </Text>
-      </View>
 
       {utilisateursChoisis.map((utilisateur, i) => (
         <View key={i} style={styles.utilisateurBloc}>
@@ -229,6 +224,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e1e1e',
     padding: 20,
     flexGrow: 1
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 60,
+    marginBottom: 4,
+    position: 'relative'
+  },
+  backBtn: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  title: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center'
+  },
+  exerciseName: {
+    textAlign: 'center',
+    color: '#00ffcc',
+    fontWeight: '600',
+    marginBottom: 12,
+    fontSize: 16
   },
   lastPerfBox: {
     backgroundColor: '#333',

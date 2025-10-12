@@ -25,7 +25,6 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   const [data, setData] = useState(() => {
     if (route.params?.performancesExistantes) {
-      // performancesExistantes?.series
       const perf = route.params.performancesExistantes;
       const base = perf?.series ?? [{ poids: 0, repetitions: 8 }];
       return utilisateursChoisis.map(() => base.map(s => ({
@@ -48,12 +47,8 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
         const exerciceKeyId = route.params?.idExercice || idExercice || null;
         const exerciceKeyName = route.params?.nomExercice || nomExercice || null;
-        if (!exerciceKeyId && !exerciceKeyName) {
-          // Pas de clé pour matcher, on ne peut pas chercher
-          return;
-        }
+        if (!exerciceKeyId && !exerciceKeyName) return;
 
-        // On tente d'abord un tri Firestore par date desc
         let rows = [];
         try {
           const q1 = query(
@@ -64,8 +59,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
           );
           const snap1 = await getDocs(q1);
           rows = snap1.docs.map(d => ({ id: d.id, ...d.data() }));
-        } catch (eOrder) {
-          // Fallback : si 'date' est hétérogène (timestamp vs string), on recharge sans orderBy et tri côté client
+        } catch {
           const q2 = query(
             collection(db, 'historiqueSeances'),
             where('utilisateurId', '==', user.uid),
@@ -80,25 +74,19 @@ export default function SaisieExerciceScreen({ route, navigation }) {
             .slice(0, 20);
         }
 
-        // On parcourt les séances de la plus récente à la plus ancienne
         for (const seance of rows) {
-          // exclure la séance en cours (si id connu ou si non terminée)
           if (sessionId && seance.sessionId && seance.sessionId === sessionId) continue;
           if (seance.terminee === false) continue;
 
           const exercices = Array.isArray(seance.exercices) ? seance.exercices : [];
-
-          // match par idExercice -> id -> nomExercice
           const exerciceTrouve = exercices.find((ex) => {
             const hasId = (ex.idExercice && exerciceKeyId && ex.idExercice === exerciceKeyId) ||
                           (ex.id && exerciceKeyId && ex.id === exerciceKeyId);
             const hasName = exerciceKeyName && (ex.nomExercice === exerciceKeyName || ex.nom === exerciceKeyName);
             return hasId || hasName;
           });
-
           if (!exerciceTrouve) continue;
 
-          // récupère les séries où qu’elles soient
           let series =
             (Array.isArray(exerciceTrouve.series) && exerciceTrouve.series.length > 0 && exerciceTrouve.series) ||
             (exerciceTrouve.performances?.series && Array.isArray(exerciceTrouve.performances.series) && exerciceTrouve.performances.series) ||
@@ -107,25 +95,13 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
           if (!series) continue;
 
-          // normalise
           const norm = series.map((s) => ({
             poids: toNum(s.poids),
             repetitions: toNum(s.repetitions || s.reps || 0),
           }));
 
-          // si au moins un poids > 0, on prend
           if (norm.some(s => s.poids > 0)) {
             setLastPerf(norm);
-
-            // Pré-remplir les inputs uniquement si l’utilisateur n’a pas déjà tapé quelque chose (optionnel)
-            setData((prev) => {
-              // ex: ne pré-remplit que si toutes les séries sont encore à 0
-              const allZero = prev[0]?.every(s => !s || (s.poids === 0 && s.repetitions === 8));
-              if (!allZero) return prev;
-              const next = [...prev];
-              next[0] = norm.map(s => ({ poids: s.poids, repetitions: s.repetitions || 8 }));
-              return next;
-            });
             break;
           }
         }
@@ -135,7 +111,6 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     };
 
     fetchLastPerf();
-    // re-run si l’exercice change
   }, [route.params?.idExercice, route.params?.nomExercice, idExercice, nomExercice, sessionId]);
 
   const ajouterSerie = (indexUtilisateur) => {
@@ -172,7 +147,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Encart perf précédente */}
+      {/* Encart perf précédente (affichage uniquement) */}
       {lastPerf && (
         <View style={styles.lastPerfBox}>
           <Text style={styles.lastPerfTitle}>Dernières performances :</Text>

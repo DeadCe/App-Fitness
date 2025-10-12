@@ -4,15 +4,34 @@ import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 
 import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
-  const { indexExercice, utilisateursChoisis = [], onSave } = route.params || {};
+  const {
+    indexExercice,
+    utilisateursChoisis = [],
+    onSave,
+    idExercice,            // idéalement fourni
+    nomExercice,           // fallback si pas d’id
+    sessionId,             // si tu as un id de séance en cours
+  } = route.params || {};
+
   const utilisateur = utilisateursChoisis[0]; // normalement un seul utilisateur
+
+  // helpers
+  const toNum = (v) => {
+    if (v === null || v === undefined || v === '') return 0;
+    const n = Number(String(v).replace(',', '.'));
+    return Number.isNaN(n) ? 0 : n;
+  };
+  const toJSDate = (v) => (v?.toDate ? v.toDate() : new Date(v));
 
   const [data, setData] = useState(() => {
     if (route.params?.performancesExistantes) {
-      return utilisateursChoisis.map((u) => {
-        const perf = route.params.performancesExistantes;
-        return perf?.series ?? [{ poids: 0, repetitions: 8 }];
-      });
+      // performancesExistantes?.series
+      const perf = route.params.performancesExistantes;
+      const base = perf?.series ?? [{ poids: 0, repetitions: 8 }];
+      return utilisateursChoisis.map(() => base.map(s => ({
+        poids: toNum(s.poids),
+        repetitions: toNum(s.repetitions || s.reps || 0),
+      })));
     }
     return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
   });
@@ -20,50 +39,104 @@ export default function SaisieExerciceScreen({ route, navigation }) {
   const [lastPerf, setLastPerf] = useState(null);
 
   useEffect(() => {
-  const fetchLastPerf = async () => {
-    try {
-      const db = getFirestore();
-      const auth = getAuth();
-      const user = auth.currentUser;
+    const fetchLastPerf = async () => {
+      try {
+        const db = getFirestore();
+        const auth = getAuth();
+        const user = auth.currentUser;
+        if (!user) return;
 
-      // 🔍 Vérifie si user et idExercice sont bien présents
-      console.log("USER ID :", user?.uid);
-      console.log("EXERCICE ID RECHERCHÉ :", route.params?.idExercice);
-
-      if (!user || !route.params?.idExercice) return;
-
-      const q = query(
-        collection(db, "historiqueSeances"),
-        where("utilisateurId", "==", user.uid),
-        orderBy("date", "desc"),
-        limit(5)
-      );
-
-      const querySnapshot = await getDocs(q);
-      console.log("NOMBRE DE SÉANCES TROUVÉES :", querySnapshot.docs.length);
-
-      for (const doc of querySnapshot.docs) {
-        const seance = doc.data();
-        console.log("SÉANCE SCANNÉE :", seance);
-
-        const exerciceTrouve = seance.exercices.find(
-          (ex) => ex.idExercice === route.params.idExercice
-        );
-
-        if (exerciceTrouve) {
-          console.log("EXERCICE TROUVÉ AVEC PERFORMANCES :", exerciceTrouve);
-          setLastPerf(exerciceTrouve.performances?.series ?? null);
-          break;
+        const exerciceKeyId = route.params?.idExercice || idExercice || null;
+        const exerciceKeyName = route.params?.nomExercice || nomExercice || null;
+        if (!exerciceKeyId && !exerciceKeyName) {
+          // Pas de clé pour matcher, on ne peut pas chercher
+          return;
         }
+
+        // On tente d'abord un tri Firestore par date desc
+        let rows = [];
+        try {
+          const q1 = query(
+            collection(db, 'historiqueSeances'),
+            where('utilisateurId', '==', user.uid),
+            orderBy('date', 'desc'),
+            limit(20)
+          );
+          const snap1 = await getDocs(q1);
+          rows = snap1.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (eOrder) {
+          // Fallback : si 'date' est hétérogène (timestamp vs string), on recharge sans orderBy et tri côté client
+          const q2 = query(
+            collection(db, 'historiqueSeances'),
+            where('utilisateurId', '==', user.uid),
+            limit(30)
+          );
+          const snap2 = await getDocs(q2);
+          rows = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+          rows = rows
+            .map(r => ({ ...r, _d: r.date ? toJSDate(r.date) : (r.createdAt ? toJSDate(r.createdAt) : null) }))
+            .filter(r => r._d && !Number.isNaN(r._d))
+            .sort((a, b) => b._d - a._d)
+            .slice(0, 20);
+        }
+
+        // On parcourt les séances de la plus récente à la plus ancienne
+        for (const seance of rows) {
+          // exclure la séance en cours (si id connu ou si non terminée)
+          if (sessionId && seance.sessionId && seance.sessionId === sessionId) continue;
+          if (seance.terminee === false) continue;
+
+          const exercices = Array.isArray(seance.exercices) ? seance.exercices : [];
+
+          // match par idExercice -> id -> nomExercice
+          const exerciceTrouve = exercices.find((ex) => {
+            const hasId = (ex.idExercice && exerciceKeyId && ex.idExercice === exerciceKeyId) ||
+                          (ex.id && exerciceKeyId && ex.id === exerciceKeyId);
+            const hasName = exerciceKeyName && (ex.nomExercice === exerciceKeyName || ex.nom === exerciceKeyName);
+            return hasId || hasName;
+          });
+
+          if (!exerciceTrouve) continue;
+
+          // récupère les séries où qu’elles soient
+          let series =
+            (Array.isArray(exerciceTrouve.series) && exerciceTrouve.series.length > 0 && exerciceTrouve.series) ||
+            (exerciceTrouve.performances?.series && Array.isArray(exerciceTrouve.performances.series) && exerciceTrouve.performances.series) ||
+            (Array.isArray(exerciceTrouve.sets) && exerciceTrouve.sets.length > 0 && exerciceTrouve.sets) ||
+            null;
+
+          if (!series) continue;
+
+          // normalise
+          const norm = series.map((s) => ({
+            poids: toNum(s.poids),
+            repetitions: toNum(s.repetitions || s.reps || 0),
+          }));
+
+          // si au moins un poids > 0, on prend
+          if (norm.some(s => s.poids > 0)) {
+            setLastPerf(norm);
+
+            // Pré-remplir les inputs uniquement si l’utilisateur n’a pas déjà tapé quelque chose (optionnel)
+            setData((prev) => {
+              // ex: ne pré-remplit que si toutes les séries sont encore à 0
+              const allZero = prev[0]?.every(s => !s || (s.poids === 0 && s.repetitions === 8));
+              if (!allZero) return prev;
+              const next = [...prev];
+              next[0] = norm.map(s => ({ poids: s.poids, repetitions: s.repetitions || 8 }));
+              return next;
+            });
+            break;
+          }
+        }
+      } catch (e) {
+        console.error('ERREUR récupération perf précédente :', e);
       }
-    } catch (e) {
-      console.error("ERREUR récupération perf précédente :", e);
-    }
-  };
+    };
 
-  fetchLastPerf();
-}, [route.params?.idExercice]);
-
+    fetchLastPerf();
+    // re-run si l’exercice change
+  }, [route.params?.idExercice, route.params?.nomExercice, idExercice, nomExercice, sessionId]);
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];
@@ -74,7 +147,9 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   const modifierValeur = (indexUtilisateur, indexSerie, champ, valeur) => {
     const copie = [...data];
-    copie[indexUtilisateur][indexSerie][champ] = parseInt(valeur) || 0;
+    copie[indexUtilisateur][indexSerie][champ] = champ === 'poids'
+      ? toNum(valeur)
+      : parseInt(valeur, 10) || 0;
     setData(copie);
   };
 
@@ -147,14 +222,14 @@ export default function SaisieExerciceScreen({ route, navigation }) {
               <Text style={styles.label}>Série {j + 1} :</Text>
               <TextInput
                 style={styles.input}
-                value={serie.poids.toString()}
+                value={String(serie.poids)}
                 onChangeText={(val) => modifierValeur(i, j, 'poids', val)}
                 keyboardType="numeric"
               />
               <Text style={styles.unit}>kg</Text>
               <TextInput
                 style={styles.input}
-                value={serie.repetitions.toString()}
+                value={String(serie.repetitions)}
                 onChangeText={(val) => modifierValeur(i, j, 'repetitions', val)}
                 keyboardType="numeric"
               />

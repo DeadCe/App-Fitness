@@ -28,6 +28,9 @@ import CustomDrawerContent from './screens/CustomDrawerContent';
 import ConsulterSeanceScreen from './screens/ConsulterSeanceScreen';
 import ConsulterExerciceScreen from './screens/ConsulterExerciceScreen';
 import AjouterMesureScreen from './screens/AjouterMesureScreen';
+import HistoriqueSeancesScreen from './screens/HistoriqueSeancesScreen';
+import SeanceDetailScreen from './screens/SeanceDetailScreen';
+
 
 const Drawer = createDrawerNavigator();
 const Stack = createNativeStackNavigator();

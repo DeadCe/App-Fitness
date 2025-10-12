@@ -23,14 +23,31 @@ export default function SaisieExerciceScreen({ route, navigation }) {
   };
   const toJSDate = (v) => (v?.toDate ? v.toDate() : new Date(v));
 
+  const getExerciseNameFromParams = (p = {}) => {
+    const candidates = [
+      p.nomExercice,
+      p.exerciceNom,
+      p.exercice?.nom,
+      p.exerciceLabel,
+      p.label,
+      p.nom,
+      p.name,
+      p.title,
+      nomExercice, // prop déjà déstructurée
+    ];
+    return candidates.find((x) => typeof x === 'string' && x.trim().length > 0) || null;
+  };
+
   const [data, setData] = useState(() => {
     if (route.params?.performancesExistantes) {
       const perf = route.params.performancesExistantes;
       const base = perf?.series ?? [{ poids: 0, repetitions: 8 }];
-      return utilisateursChoisis.map(() => base.map(s => ({
-        poids: toNum(s.poids),
-        repetitions: toNum(s.repetitions || s.reps || 0),
-      })));
+      return utilisateursChoisis.map(() =>
+        base.map((s) => ({
+          poids: toNum(s.poids),
+          repetitions: toNum(s.repetitions || s.reps || 0),
+        })),
+      );
     }
     return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
   });
@@ -38,13 +55,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
   const [lastPerf, setLastPerf] = useState(null);
 
   // Libellé à afficher pour l'exercice
-  const exerciseLabel =
-    route.params?.nomExercice ||
-    nomExercice ||
-    route.params?.exercice?.nom ||
-    route.params?.exerciceNom ||
-    route.params?.label ||
-    'Exercice';
+  const exerciseLabel = getExerciseNameFromParams(route.params) || 'Exercice';
 
   useEffect(() => {
     const fetchLastPerf = async () => {
@@ -55,7 +66,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
         if (!user) return;
 
         const exerciceKeyId = route.params?.idExercice || idExercice || null;
-        const exerciceKeyName = route.params?.nomExercice || nomExercice || null;
+        const exerciceKeyName = getExerciseNameFromParams(route.params);
         if (!exerciceKeyId && !exerciceKeyName) return;
 
         let rows = [];
@@ -64,21 +75,21 @@ export default function SaisieExerciceScreen({ route, navigation }) {
             collection(db, 'historiqueSeances'),
             where('utilisateurId', '==', user.uid),
             orderBy('date', 'desc'),
-            limit(20)
+            limit(20),
           );
           const snap1 = await getDocs(q1);
-          rows = snap1.docs.map(d => ({ id: d.id, ...d.data() }));
+          rows = snap1.docs.map((d) => ({ id: d.id, ...d.data() }));
         } catch {
           const q2 = query(
             collection(db, 'historiqueSeances'),
             where('utilisateurId', '==', user.uid),
-            limit(30)
+            limit(30),
           );
           const snap2 = await getDocs(q2);
-          rows = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+          rows = snap2.docs.map((d) => ({ id: d.id, ...d.data() }));
           rows = rows
-            .map(r => ({ ...r, _d: r.date ? toJSDate(r.date) : (r.createdAt ? toJSDate(r.createdAt) : null) }))
-            .filter(r => r._d && !Number.isNaN(r._d))
+            .map((r) => ({ ...r, _d: r.date ? toJSDate(r.date) : r.createdAt ? toJSDate(r.createdAt) : null }))
+            .filter((r) => r._d && !Number.isNaN(r._d))
             .sort((a, b) => b._d - a._d)
             .slice(0, 20);
         }
@@ -89,8 +100,9 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
           const exercices = Array.isArray(seance.exercices) ? seance.exercices : [];
           const exerciceTrouve = exercices.find((ex) => {
-            const hasId = (ex.idExercice && exerciceKeyId && ex.idExercice === exerciceKeyId) ||
-                          (ex.id && exerciceKeyId && ex.id === exerciceKeyId);
+            const hasId =
+              (ex.idExercice && exerciceKeyId && ex.idExercice === exerciceKeyId) ||
+              (ex.id && exerciceKeyId && ex.id === exerciceKeyId);
             const hasName = exerciceKeyName && (ex.nomExercice === exerciceKeyName || ex.nom === exerciceKeyName);
             return hasId || hasName;
           });
@@ -98,7 +110,9 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
           let series =
             (Array.isArray(exerciceTrouve.series) && exerciceTrouve.series.length > 0 && exerciceTrouve.series) ||
-            (exerciceTrouve.performances?.series && Array.isArray(exerciceTrouve.performances.series) && exerciceTrouve.performances.series) ||
+            (exerciceTrouve.performances?.series &&
+              Array.isArray(exerciceTrouve.performances.series) &&
+              exerciceTrouve.performances.series) ||
             (Array.isArray(exerciceTrouve.sets) && exerciceTrouve.sets.length > 0 && exerciceTrouve.sets) ||
             null;
 
@@ -109,7 +123,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
             repetitions: toNum(s.repetitions || s.reps || 0),
           }));
 
-          if (norm.some(s => s.poids > 0)) {
+          if (norm.some((s) => s.poids > 0)) {
             setLastPerf(norm);
             break;
           }
@@ -120,7 +134,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     };
 
     fetchLastPerf();
-  }, [route.params?.idExercice, route.params?.nomExercice, idExercice, nomExercice, sessionId]);
+  }, [route.params?.idExercice, route.params, idExercice, nomExercice, sessionId]);
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];
@@ -131,9 +145,8 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   const modifierValeur = (indexUtilisateur, indexSerie, champ, valeur) => {
     const copie = [...data];
-    copie[indexUtilisateur][indexSerie][champ] = champ === 'poids'
-      ? toNum(valeur)
-      : parseInt(valeur, 10) || 0;
+    copie[indexUtilisateur][indexSerie][champ] =
+      champ === 'poids' ? toNum(valeur) : parseInt(valeur, 10) || 0;
     setData(copie);
   };
 
@@ -148,7 +161,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   if (!utilisateursChoisis || utilisateursChoisis.length === 0) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: "#1e1e1e" }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1e1e1e' }}>
         <Text style={{ color: 'white' }}>Aucun utilisateur sélectionné</Text>
       </View>
     );
@@ -172,7 +185,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
       {/* Nom d'exercice juste sous le titre */}
       <Text style={styles.exerciseName}>{exerciseLabel}</Text>
 
-      {/* Encart perf précédente (désormais sous l'entête) */}
+      {/* Encart perf précédente (sous l'entête) */}
       {lastPerf && (
         <View style={styles.lastPerfBox}>
           <Text style={styles.lastPerfTitle}>Dernières performances :</Text>
@@ -220,107 +233,22 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#1e1e1e',
-    padding: 20,
-    flexGrow: 1
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 60,
-    marginBottom: 4,
-    position: 'relative'
-  },
-  backBtn: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 50,
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  title: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center'
-  },
-  exerciseName: {
-    textAlign: 'center',
-    color: '#00ffcc',
-    fontWeight: '600',
-    marginBottom: 12,
-    fontSize: 16
-  },
-  lastPerfBox: {
-    backgroundColor: '#333',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
-  },
-  lastPerfTitle: {
-    color: '#00ffcc',
-    fontWeight: 'bold',
-    marginBottom: 8,
-    fontSize: 16
-  },
-  lastPerfText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  utilisateurBloc: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20
-  },
-  nom: {
-    color: '#00aaff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10
-  },
-  serieRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  label: {
-    color: '#fff',
-    marginRight: 10
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderRadius: 5,
-    padding: 5,
-    marginHorizontal: 5,
-    width: 60,
-    textAlign: 'center'
-  },
-  unit: {
-    color: '#ccc',
-    marginRight: 10
-  },
-  ajouter: {
-    marginTop: 10,
-    alignItems: 'center'
-  },
-  ajouterText: {
-    color: '#00ffcc'
-  },
-  button: {
-    backgroundColor: '#007ACC',
-    borderRadius: 10,
-    padding: 15,
-    marginTop: 10,
-    alignItems: 'center'
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: 'bold'
-  }
+  container: { backgroundColor: '#1e1e1e', padding: 20, flexGrow: 1 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', height: 60, marginBottom: 4, position: 'relative' },
+  backBtn: { position: 'absolute', left: 0, top: 0, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  title: { fontSize: 20, color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' },
+  exerciseName: { textAlign: 'center', color: '#00ffcc', fontWeight: '600', marginBottom: 12, fontSize: 16 },
+  lastPerfBox: { backgroundColor: '#333', padding: 15, borderRadius: 10, marginBottom: 20 },
+  lastPerfTitle: { color: '#00ffcc', fontWeight: 'bold', marginBottom: 8, fontSize: 16 },
+  lastPerfText: { color: '#fff', fontSize: 14 },
+  utilisateurBloc: { backgroundColor: '#2a2a2a', borderRadius: 10, padding: 15, marginBottom: 20 },
+  nom: { color: '#00aaff', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  serieRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  label: { color: '#fff', marginRight: 10 },
+  input: { backgroundColor: '#fff', borderRadius: 5, padding: 5, marginHorizontal: 5, width: 60, textAlign: 'center' },
+  unit: { color: '#ccc', marginRight: 10 },
+  ajouter: { marginTop: 10, alignItems: 'center' },
+  ajouterText: { color: '#00ffcc' },
+  button: { backgroundColor: '#007ACC', borderRadius: 10, padding: 15, marginTop: 10, alignItems: 'center' },
+  buttonText: { color: '#ffffff', fontWeight: 'bold' },
 });

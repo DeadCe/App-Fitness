@@ -1,15 +1,16 @@
+// screens/HistoriqueSeancesScreen.js
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  RefreshControl, TextInput, Platform
+  RefreshControl, TextInput, ScrollView, Platform
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getAuth } from 'firebase/auth';
 import {
   getFirestore, collection, query, where, orderBy, limit, getDocs, startAfter
 } from 'firebase/firestore';
 
+/* ------------------ utils ------------------ */
 const toJSDate = (v) => (v?.toDate ? v.toDate() : new Date(v));
 const fmtDate = (d) => {
   if (!d || Number.isNaN(d.getTime())) return '—';
@@ -31,53 +32,91 @@ const compactSeries = (seriesArr = []) =>
     .filter(Boolean)
     .join(', ');
 
+/* ---------- dropdown custom sombre ---------- */
+function ExoDropdown({ value, onChange, options }) {
+  const [open, setOpen] = React.useState(false);
+  const selected = options.find(o => o.value === value);
+
+  return (
+    <View style={{ position: 'relative' }}>
+      <TouchableOpacity
+        onPress={() => setOpen(true)}
+        activeOpacity={0.8}
+        style={styles.ddTrigger}
+      >
+        <Text style={{ color: '#fff' }}>
+          {selected ? selected.label : 'Tous les exercices'}
+        </Text>
+      </TouchableOpacity>
+
+      {open && (
+        <View style={styles.ddMenu}>
+          <ScrollView>
+            <TouchableOpacity
+              onPress={() => { onChange(''); setOpen(false); }}
+              style={styles.ddItem}
+            >
+              <Text style={{ color: '#00aaff' }}>Tous</Text>
+            </TouchableOpacity>
+
+            {options.map(opt => (
+              <TouchableOpacity
+                key={opt.value}
+                onPress={() => { onChange(opt.value); setOpen(false); }}
+                style={styles.ddItem}
+              >
+                <Text style={{ color: '#fff' }}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* -------------- écran historique -------------- */
 export default function HistoriqueSeancesScreen() {
   const nav = useNavigation();
   const auth = getAuth();
   const db = getFirestore();
 
-  // données
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // pagination
   const PAGE_SIZE = 20;
-  const [canPaginate, setCanPaginate] = useState(true); // false si fallback
-  const [isPaginating, setIsPaginating] = useState(false);
   const lastDocRef = useRef(null);
+  const [canPaginate, setCanPaginate] = useState(true);
+  const [isPaginating, setIsPaginating] = useState(false);
 
   // filtres
-  const [search, setSearch] = useState('');           // texte sur nom d’exo
+  const [search, setSearch] = useState('');
   const [onlyThisMonth, setOnlyThisMonth] = useState(false);
-  const [exercises, setExercises] = useState([]);     // [{id, nom}]
-  const [selectedExerciseId, setSelectedExerciseId] = useState(''); // '' = tous
+  const [exos, setExos] = useState([]);               // {id, nom}
+  const [exoSelected, setExoSelected] = useState(''); // id
+  const [exoSelectedName, setExoSelectedName] = useState(''); // nom pour fallback
 
-  // dates
   const startOfMonth = useMemo(() => {
     const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d;
   }, []);
 
-  // util
   const normalizeRow = (r) => {
     const d = r.date ? toJSDate(r.date) : (r.createdAt ? toJSDate(r.createdAt) : null);
     const exercices = Array.isArray(r.exercices) ? r.exercices : [];
-    return { id: r.id, date: d, exercices, _raw: r };
+    return { id: r.id, date: d, exercices };
   };
 
-  // charge la liste d’exercices pour le Picker
+  // charger exercices (picker)
   const loadExercises = useCallback(async () => {
-    try {
-      const snap = await getDocs(collection(db, 'exercices'));
-      const list = snap.docs.map(d => ({ id: d.id, nom: d.data()?.nom || d.data()?.name || 'Sans nom' }))
-                            .sort((a,b) => a.nom.localeCompare(b.nom));
-      setExercises(list);
-    } catch (e) {
-      console.warn('Impossible de charger la liste des exercices :', e);
-    }
+    const snap = await getDocs(collection(db, 'exercices'));
+    const list = snap.docs.map(d => ({ id: d.id, ...(d.data()||{}) }));
+    list.sort((a,b) => (a.nom||'').localeCompare(b.nom||''));
+    setExos(list);
   }, [db]);
 
-  // charge la première page
+  // 1ère page
   const loadFirst = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) return;
@@ -85,7 +124,7 @@ export default function HistoriqueSeancesScreen() {
     lastDocRef.current = null;
 
     try {
-      // tentative: ordre Firestore (permet le scroll infini)
+      // version idéale : dates au format Timestamp -> orderBy ok
       const q1 = query(
         collection(db, 'historiqueSeances'),
         where('utilisateurId', '==', user.uid),
@@ -93,16 +132,15 @@ export default function HistoriqueSeancesScreen() {
         limit(PAGE_SIZE)
       );
       const snap1 = await getDocs(q1);
-
       const docs = snap1.docs.map(d => ({ id: d.id, ...d.data(), __doc: d }));
       lastDocRef.current = snap1.docs.length ? snap1.docs[snap1.docs.length - 1] : null;
       setItems(docs.map(normalizeRow));
-      setCanPaginate(true); // ok, on peut paginer
+      setCanPaginate(true);
     } catch {
-      // fallback : pas d'orderBy possible -> on charge un gros lot et on trie côté client
+      // fallback : mélange Timestamp/string -> tri client
       const q2 = query(
         collection(db, 'historiqueSeances'),
-        where('utilisateurId', '==', auth.currentUser.uid),
+        where('utilisateurId', '==', user.uid),
         limit(200)
       );
       const snap2 = await getDocs(q2);
@@ -111,9 +149,8 @@ export default function HistoriqueSeancesScreen() {
         .map(r => ({ ...r, _d: r.date ? toJSDate(r.date) : (r.createdAt ? toJSDate(r.createdAt) : null) }))
         .filter(r => r._d && !Number.isNaN(r._d))
         .sort((a,b) => b._d - a._d);
-
       setItems(rows.map(normalizeRow));
-      setCanPaginate(false); // pas de pagination dans ce mode
+      setCanPaginate(false);
       lastDocRef.current = null;
     } finally {
       setLoading(false);
@@ -148,32 +185,35 @@ export default function HistoriqueSeancesScreen() {
     }
   }, [auth, db, canPaginate, isPaginating]);
 
-  const onRefresh = useCallback(async () => {
+  useFocusEffect(useCallback(() => {
+    loadExercises();
+    loadFirst();
+  }, [loadExercises, loadFirst]));
+
+  const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadExercises(), loadFirst()]);
+    await loadFirst();
     setRefreshing(false);
-  }, [loadExercises, loadFirst]);
+  };
 
-  // chargement initial
-  useFocusEffect(useCallback(() => { onRefresh(); }, [onRefresh]));
-
-  // filtration côté client
+  // filtre client
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return items.filter(it => {
-      // filtre période
       if (onlyThisMonth && it.date && it.date < startOfMonth) return false;
 
-      // filtre par exercice (id)
-      if (selectedExerciseId) {
-        const hasExId = (it.exercices || []).some(ex =>
-          ex.idExercice === selectedExerciseId ||
-          ex.id === selectedExerciseId
-        );
-        if (!hasExId) return false;
+      // filtre exo id / nom
+      if (exoSelected) {
+        const hasId = (it.exercices||[]).some(ex => (ex.idExercice && ex.idExercice === exoSelected) || (ex.id && ex.id === exoSelected));
+        if (!hasId) return false;
+      } else if (exoSelectedName) {
+        const hasName = (it.exercices||[]).some(ex => {
+          const name = (ex.nomExercice || ex.nom || ex.name || '').toLowerCase();
+          return name === exoSelectedName.toLowerCase();
+        });
+        if (!hasName) return false;
       }
 
-      // filtre texte sur nom d’exo
       if (!term) return true;
       const hasTerm = (it.exercices || []).some(ex => {
         const name = (ex.nomExercice || ex.nom || ex.name || '').toLowerCase();
@@ -181,7 +221,13 @@ export default function HistoriqueSeancesScreen() {
       });
       return hasTerm;
     });
-  }, [items, search, onlyThisMonth, startOfMonth, selectedExerciseId]);
+  }, [items, search, onlyThisMonth, startOfMonth, exoSelected, exoSelectedName]);
+
+  const onSelectExo = (val) => {
+    setExoSelected(val);
+    const found = exos.find(x => x.id === val);
+    setExoSelectedName(found?.nom || '');
+  };
 
   const renderItem = ({ item }) => {
     const totalSeries = item.exercices.reduce((acc, ex) => {
@@ -238,7 +284,7 @@ export default function HistoriqueSeancesScreen() {
     <View style={styles.screen}>
       <Text style={styles.title}>Historique des séances</Text>
 
-      {/* Filtres */}
+      {/* Filtres ligne 1 */}
       <View style={styles.filters}>
         <TextInput
           value={search}
@@ -247,36 +293,29 @@ export default function HistoriqueSeancesScreen() {
           placeholderTextColor="#888"
           style={styles.search}
         />
+      </View>
+
+      {/* Filtres ligne 2 */}
+      <View style={styles.filtersRow2}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: '#ccc', marginBottom: 6 }}>Exercice :</Text>
+          <ExoDropdown
+            value={exoSelected}
+            onChange={onSelectExo}
+            options={exos.map(x => ({ value: x.id, label: x.nom || 'Sans nom' }))}
+          />
+        </View>
+
         <TouchableOpacity
           onPress={() => setOnlyThisMonth(v => !v)}
           style={[styles.tag, onlyThisMonth && styles.tagOn]}
         >
-          <Text style={{ color: onlyThisMonth ? '#001' : '#ccc' }}>
-            Mois en cours
-          </Text>
+          <Text style={{ color: onlyThisMonth ? '#001' : '#ccc' }}>Mois en cours</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filtre par exercice */}
-      <View style={styles.pickerRow}>
-        <Text style={{ color:'#aaa', marginRight: 8 }}>Exercice :</Text>
-        <View style={styles.pickerWrap}>
-          <Picker
-            selectedValue={selectedExerciseId}
-            onValueChange={(val) => setSelectedExerciseId(val)}
-            dropdownIconColor="#00aaff"
-            style={{ color:'#fff' }}
-          >
-            <Picker.Item label="Tous" value="" />
-            {exercises.map(ex => (
-              <Picker.Item key={ex.id} label={ex.nom} value={ex.id} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-
       {loading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ flex:1, alignItems:'center', justifyContent:'center' }}>
           <ActivityIndicator color="#00aaff" size="large" />
         </View>
       ) : (
@@ -308,22 +347,37 @@ export default function HistoriqueSeancesScreen() {
   );
 }
 
+/* ---------------- styles ---------------- */
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#1e1e1e', paddingHorizontal: 16, paddingTop: 16 },
   title: { color: '#fff', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
 
   filters: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   search: {
-    flex: 1, backgroundColor: '#252525', color: '#fff', paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 12 : 8,
+    flex: 1, backgroundColor: '#252525', color: '#fff', paddingHorizontal: 12, paddingVertical: 8,
     borderRadius: 10, marginRight: 8, borderColor: '#333', borderWidth: 1
   },
+
+  filtersRow2: { flexDirection: 'row', alignItems:'flex-end', gap: 8, marginBottom: 8 },
   tag: {
-    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: '#555'
+    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+    borderColor: '#555', marginLeft: 8, height: 46, justifyContent: 'center'
   },
   tagOn: { backgroundColor: '#00aaff' },
 
-  pickerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  pickerWrap: { flex: 1, backgroundColor:'#252525', borderRadius:10, borderWidth:1, borderColor:'#333' },
+  // dropdown
+  ddTrigger: {
+    backgroundColor: '#252525', borderColor: '#333', borderWidth: 1, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 12,
+  },
+  ddMenu: {
+    position: 'absolute', top: 50, left: 0, right: 0,
+    backgroundColor: '#1f1f1f', borderColor: '#333', borderWidth: 1, borderRadius: 10,
+    maxHeight: 300, zIndex: 999,
+    ...Platform.select({ android: { elevation: 10 } }),
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+  },
+  ddItem: { paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
 
   card: {
     backgroundColor: '#252525',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput } from 'react-native';
-import { getFirestore, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, query, where, orderBy, limit, getDocs, doc, getDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 export default function SaisieExerciceScreen({ route, navigation }) {
@@ -8,9 +8,9 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     indexExercice,
     utilisateursChoisis = [],
     onSave,
-    idExercice,            // idéalement fourni
-    nomExercice,           // fallback si pas d’id
-    sessionId,             // si tu as un id de séance en cours
+    idExercice,        // idéalement fourni
+    nomExercice,       // peut être vide
+    sessionId,         // si tu as un id de séance en cours
   } = route.params || {};
 
   const utilisateur = utilisateursChoisis[0]; // normalement un seul utilisateur
@@ -33,10 +33,43 @@ export default function SaisieExerciceScreen({ route, navigation }) {
       p.nom,
       p.name,
       p.title,
-      nomExercice, // prop déjà déstructurée
+      nomExercice, // variable déstructurée
     ];
     return candidates.find((x) => typeof x === 'string' && x.trim().length > 0) || null;
   };
+
+  const [exerciseName, setExerciseName] = useState(getExerciseNameFromParams(route.params) || null);
+
+  // 👇 fallback: si pas de nom dans les params, on le récupère depuis Firestore grâce à idExercice
+  useEffect(() => {
+    const fetchExerciseName = async () => {
+      if (exerciseName) return;           // on a déjà un nom
+      const exoId = route.params?.idExercice || idExercice;
+      if (!exoId) return;
+
+      try {
+        const db = getFirestore();
+        // on tente d'abord la collection la plus probable
+        const tryCollections = ['exercices', 'exercises'];
+        for (const col of tryCollections) {
+          const snap = await getDoc(doc(db, col, exoId));
+          if (snap.exists()) {
+            const d = snap.data() || {};
+            const nom = d.nom || d.name || d.titre || d.title || null;
+            if (nom) {
+              setExerciseName(nom);
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Impossible de récupérer le nom de l’exercice :', e);
+      }
+    };
+
+    fetchExerciseName();
+    // recheck si l’id change
+  }, [route.params?.idExercice, idExercice, exerciseName]);
 
   const [data, setData] = useState(() => {
     if (route.params?.performancesExistantes) {
@@ -54,9 +87,6 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
   const [lastPerf, setLastPerf] = useState(null);
 
-  // Libellé à afficher pour l'exercice
-  const exerciseLabel = getExerciseNameFromParams(route.params) || 'Exercice';
-
   useEffect(() => {
     const fetchLastPerf = async () => {
       try {
@@ -66,7 +96,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
         if (!user) return;
 
         const exerciceKeyId = route.params?.idExercice || idExercice || null;
-        const exerciceKeyName = getExerciseNameFromParams(route.params);
+        const exerciceKeyName = getExerciseNameFromParams(route.params) || exerciseName || null;
         if (!exerciceKeyId && !exerciceKeyName) return;
 
         let rows = [];
@@ -134,7 +164,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     };
 
     fetchLastPerf();
-  }, [route.params?.idExercice, route.params, idExercice, nomExercice, sessionId]);
+  }, [route.params?.idExercice, idExercice, route.params, sessionId, exerciseName]);
 
   const ajouterSerie = (indexUtilisateur) => {
     const copie = [...data];
@@ -183,9 +213,9 @@ export default function SaisieExerciceScreen({ route, navigation }) {
       </View>
 
       {/* Nom d'exercice juste sous le titre */}
-      <Text style={styles.exerciseName}>{exerciseLabel}</Text>
+      <Text style={styles.exerciseName}>{exerciseName || 'Exercice'}</Text>
 
-      {/* Encart perf précédente (sous l'entête) */}
+      {/* Encart perf précédente */}
       {lastPerf && (
         <View style={styles.lastPerfBox}>
           <Text style={styles.lastPerfTitle}>Dernières performances :</Text>

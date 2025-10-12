@@ -95,6 +95,8 @@ export default function App() {
           <Stack.Screen name="ConsulterExercice" component={ConsulterExerciceScreen} />
           <Stack.Screen name="ModifierUtilisateur" component={ModifierUtilisateurScreen} />
           <Stack.Screen name="AjouterMesure" component={AjouterMesureScreen} options={{ title: 'Nouvelle mesure' }} />
+          <Stack.Screen name="HistoriqueSeances" component={HistoriqueSeancesScreen} options={{ headerShown:false }} />
+          <Stack.Screen name="SeanceDetail" component={SeanceDetailScreen} options={{ headerShown:false }} />
         </Stack.Navigator>
       </NavigationContainer>
     </>

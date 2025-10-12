@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  RefreshControl, TextInput, ScrollView, Platform
+  RefreshControl, TextInput, ScrollView, Modal, Pressable
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getAuth } from 'firebase/auth';
@@ -32,46 +32,59 @@ const compactSeries = (seriesArr = []) =>
     .filter(Boolean)
     .join(', ');
 
-/* ---------- dropdown custom sombre ---------- */
-function ExoDropdown({ value, onChange, options }) {
-  const [open, setOpen] = React.useState(false);
+/* ---------- dropdown en Modal (au-dessus de tout) ---------- */
+function ExoDropdown({ value, onChange, options, label = 'Tous les exercices' }) {
+  const [open, setOpen] = useState(false);
   const selected = options.find(o => o.value === value);
 
   return (
-    <View style={{ position: 'relative' }}>
+    <>
       <TouchableOpacity
         onPress={() => setOpen(true)}
-        activeOpacity={0.8}
+        activeOpacity={0.85}
         style={styles.ddTrigger}
       >
         <Text style={{ color: '#fff' }}>
-          {selected ? selected.label : 'Tous les exercices'}
+          {selected ? selected.label : label}
         </Text>
       </TouchableOpacity>
 
-      {open && (
-        <View style={styles.ddMenu}>
-          <ScrollView>
-            <TouchableOpacity
-              onPress={() => { onChange(''); setOpen(false); }}
-              style={styles.ddItem}
-            >
-              <Text style={{ color: '#00aaff' }}>Tous</Text>
-            </TouchableOpacity>
+      <Modal
+        visible={open}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setOpen(false)}
+      >
+        {/* Backdrop cliquable pour fermer */}
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)}>
+          {/* On stoppe la propagation sur la boîte pour ne pas fermer en cliquant dedans */}
+          <Pressable onPress={() => {}} style={styles.modalBox}>
+            <View style={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 4 }}>
+              <Text style={{ color: '#aaa', marginBottom: 8 }}>Exercice</Text>
+            </View>
 
-            {options.map(opt => (
+            <ScrollView>
               <TouchableOpacity
-                key={opt.value}
-                onPress={() => { onChange(opt.value); setOpen(false); }}
+                onPress={() => { onChange(''); setOpen(false); }}
                 style={styles.ddItem}
               >
-                <Text style={{ color: '#fff' }}>{opt.label}</Text>
+                <Text style={{ color: '#00aaff' }}>Tous</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
+
+              {options.map(opt => (
+                <TouchableOpacity
+                  key={opt.value}
+                  onPress={() => { onChange(opt.value); setOpen(false); }}
+                  style={styles.ddItem}
+                >
+                  <Text style={{ color: '#fff' }}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -365,19 +378,23 @@ const styles = StyleSheet.create({
   },
   tagOn: { backgroundColor: '#00aaff' },
 
-  // dropdown
+  // dropdown trigger
   ddTrigger: {
     backgroundColor: '#252525', borderColor: '#333', borderWidth: 1, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 12,
   },
-  ddMenu: {
-    position: 'absolute', top: 50, left: 0, right: 0,
-    backgroundColor: '#1f1f1f', borderColor: '#333', borderWidth: 1, borderRadius: 10,
-    maxHeight: 300, zIndex: 999,
-    ...Platform.select({ android: { elevation: 10 } }),
-    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+
+  // modal dropdown
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', paddingHorizontal: 24
   },
-  ddItem: { paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
+  modalBox: {
+    backgroundColor: '#1f1f1f', borderRadius: 12, borderWidth: 1, borderColor: '#333',
+    maxHeight: '70%', width: '100%', overflow: 'hidden'
+  },
+  ddItem: {
+    paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#2a2a2a'
+  },
 
   card: {
     backgroundColor: '#252525',

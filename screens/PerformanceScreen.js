@@ -226,6 +226,8 @@ export default function PerformanceScreen() {
               data={chartData}
               width={screenWidth - 40}
               height={230}
+              fromZero={true} // ✅ démarre toujours à 0
+              yAxisSuffix="kg"
               chartConfig={{
                 backgroundColor: '#1e1e1e',
                 backgroundGradientFrom: '#1e1e1e',

@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { SafeAreaView, Text, View, TouchableOpacity, StyleSheet, ScrollView, Modal, FlatList } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, doc, deleteDoc, getDoc, getDocs, addDoc, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,9 +38,7 @@ export default function AccueilScreen({ navigation }) {
   const [utilisateur, setUtilisateur] = useState(null);
   const [derniereSeance, setDerniereSeance] = useState(null);
   const [dernierPoids, setDernierPoids] = useState(null);
-  const [planning, setPlanning] = useState({
-    Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: []
-  });
+  const [planning, setPlanning] = useState({ Lun: [], Mar: [], Mer: [], Jeu: [], Ven: [], Sam: [], Dim: [] });
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const weekKey = getWeekKey(selectedDate);
@@ -48,6 +47,45 @@ export default function AccueilScreen({ navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [jourSelectionne, setJourSelectionne] = useState(null);
   const [seancesDisponibles, setSeancesDisponibles] = useState([]);
+
+  // ---- Brouillon de séance en cours (bandeau reprendre/abandonner)
+  const [ongoingDraft, setOngoingDraft] = useState(null); // { key, idSeance, nom }
+
+  const checkOngoingDraft = useCallback(async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        setOngoingDraft(null);
+        return;
+      }
+      const allKeys = await AsyncStorage.getAllKeys();
+      const prefix = `draft:seance:${user.uid}:`;
+      const keys = allKeys.filter(k => k.startsWith(prefix));
+      if (!keys.length) {
+        setOngoingDraft(null);
+        return;
+      }
+      // on prend la plus récente (clé contient sessionId/epoch → tri)
+      keys.sort();
+      const lastKey = keys[keys.length - 1];
+      const raw = await AsyncStorage.getItem(lastKey);
+      if (!raw) {
+        setOngoingDraft(null);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      const idSeance = parsed?.seanceMeta?.idSeance || null;
+      const nom = parsed?.seanceMeta?.nom || 'Séance';
+      if (idSeance) {
+        setOngoingDraft({ key: lastKey, idSeance, nom });
+      } else {
+        setOngoingDraft(null);
+      }
+    } catch (e) {
+      console.warn('Erreur détection séance en cours :', e);
+      setOngoingDraft(null);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -88,7 +126,6 @@ export default function AccueilScreen({ navigation }) {
         }
 
         // ===== RÈGLES DE PLANNING =====
-        // On charge toutes les règles, puis on applique la logique parité/once en code
         const planningSnap = await getDocs(
           query(collection(db, "planning"), where("utilisateurId", "==", user.uid))
         );
@@ -130,10 +167,13 @@ export default function AccueilScreen({ navigation }) {
         });
 
         setPlanning(p);
+
+        // détecter un brouillon de séance en cours
+        await checkOngoingDraft();
       };
 
       charger();
-    }, [weekKey]) // recharge quand on change de semaine via flèches
+    }, [weekKey, checkOngoingDraft])
   );
 
   const ouvrirAjoutSeance = async (jour) => {
@@ -185,11 +225,44 @@ export default function AccueilScreen({ navigation }) {
     setSelectedDate(d => addWeeks(d, dir === 'prev' ? -1 : 1));
   };
 
+  // actions bandeau
+  const resumeOngoing = () => {
+    if (ongoingDraft?.idSeance) {
+      navigation.navigate('LancerSeanceScreen', { idSeance: ongoingDraft.idSeance });
+    }
+  };
+  const abandonOngoing = async () => {
+    try {
+      if (ongoingDraft?.key) {
+        await AsyncStorage.removeItem(ongoingDraft.key);
+      }
+    } catch {}
+    setOngoingDraft(null);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
         {utilisateur && (
           <Text style={styles.bienvenue}>Bienvenue {utilisateur.identifiant}</Text>
+        )}
+
+        {/* Bandeau séance en cours */}
+        {ongoingDraft && (
+          <View style={styles.banner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerTitle}>Séance en cours</Text>
+              <Text style={styles.bannerText}>{ongoingDraft.nom || 'Séance'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity style={[styles.bannerBtn, styles.bannerPrimary]} onPress={resumeOngoing}>
+                <Text style={styles.bannerBtnTextPrimary}>Reprendre</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.bannerBtn, styles.bannerDanger]} onPress={abandonOngoing}>
+                <Text style={styles.bannerBtnTextDanger}>Abandonner</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
 
         {/* Dernière séance */}
@@ -393,6 +466,33 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e1e1e' },
   scroll: { alignItems: 'center', padding: 20 },
   bienvenue: { fontSize: 22, color: '#ffffff', fontWeight: 'bold', marginBottom: 20 },
+
+  // Bandeau séance en cours
+  banner: {
+    width: '95%',
+    backgroundColor: '#00384D',
+    borderColor: '#00aaff',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  bannerTitle: { color: '#00aaff', fontWeight: 'bold', marginBottom: 2 },
+  bannerText: { color: '#fff' },
+  bannerBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  bannerPrimary: { borderColor: '#00aaff', backgroundColor: '#00aaff' },
+  bannerDanger: { borderColor: '#aa3333' },
+  bannerBtnTextPrimary: { color: '#001', fontWeight: 'bold' },
+  bannerBtnTextDanger: { color: '#aa3333', fontWeight: 'bold' },
+
   card: {
     backgroundColor: '#252525',
     borderRadius: 20,

@@ -4,7 +4,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, ScrollView, ActivityIndicator, Alert
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LineChart, BarChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -20,31 +20,18 @@ const toJSDate = (v) => {
   try { return new Date(v); } catch { return null; }
 };
 
-// Calculs de perfs
-const epley1RM = (poids, reps) => (poids || 0) * (1 + (reps || 0) / 30);
-
-function computeMetricPoints(entries, metric) {
+// Calcule points = poids max par séance pour l'exo
+function computeMaxWeightPoints(entries) {
   // entries: [{date: Date, series:[{poids, repetitions}]}]
   const points = entries.map((e) => {
     const sets = Array.isArray(e.series) ? e.series : [];
-    const safeSets = sets.map(s => ({
-      poids: Number(s?.poids) || 0,
-      reps: Number(s?.repetitions ?? s?.reps ?? 0) || 0
-    }));
-
-    let value = 0;
-    if (metric === 'max_weight') {
-      value = Math.max(0, ...safeSets.map(s => s.poids));
-    } else if (metric === 'total_volume') {
-      value = safeSets.reduce((acc, s) => acc + s.poids * s.reps, 0);
-    } else if (metric === 'est_1rm') {
-      value = Math.max(0, ...safeSets.map(s => epley1RM(s.poids, s.reps)));
-    } else if (metric === 'avg_reps') {
-      const n = safeSets.length || 1;
-      value = safeSets.reduce((acc, s) => acc + s.reps, 0) / n;
-    }
-    return { date: e.date, value };
-  });
+    const max = sets.reduce((m, s) => {
+      const w = Number(s?.poids) || 0;
+      return w > m ? w : m;
+    }, 0);
+    return { date: e.date, value: max };
+  })
+  .filter(p => p.value > 0); // on ignore les séances sans poids
 
   // Trie chrono asc
   points.sort((a, b) => a.date - b.date);
@@ -57,16 +44,10 @@ export default function PerformanceScreen() {
   const [search, setSearch] = useState('');
   const [selectedExo, setSelectedExo] = useState(null);  // {id, nom}
   const [favorites, setFavorites] = useState([]);        // [{id, nom}]
-  const [chartType, setChartType] = useState('line');    // 'line' | 'bar'
-  const [metric, setMetric] = useState('max_weight');    // 'max_weight' | 'total_volume' | 'est_1rm' | 'avg_reps'
   const [seriesData, setSeriesData] = useState([]);      // [{date, value}]
 
   const user = auth.currentUser;
-
-  const favKey = useMemo(
-    () => `perf:favorites:${user?.uid || 'anon'}`,
-    [user?.uid]
-  );
+  const favKey = useMemo(() => `perf:favorites:${user?.uid || 'anon'}`, [user?.uid]);
 
   // Charger la liste des exercices + favoris
   useEffect(() => {
@@ -100,7 +81,7 @@ export default function PerformanceScreen() {
     return () => { mounted = false; };
   }, [favKey]);
 
-  // Charger l’historique quand on choisit un exo
+  // Charger l’historique quand on choisit un exo (poids max par séance)
   const loadHistoryForExercise = useCallback(async (exo) => {
     if (!user || !exo) return;
     setLoading(true);
@@ -135,7 +116,7 @@ export default function PerformanceScreen() {
         matched.push({ date: d, series });
       }
 
-      const pts = computeMetricPoints(matched, metric);
+      const pts = computeMaxWeightPoints(matched);
       setSeriesData(pts);
     } catch (e) {
       console.error(e);
@@ -143,16 +124,13 @@ export default function PerformanceScreen() {
     } finally {
       setLoading(false);
     }
-  }, [metric, user]);
+  }, [user]);
 
-  // Recharger la série quand metric change ou exo change
+  // Recharger la série quand exo change
   useEffect(() => {
-    if (selectedExo) {
-      loadHistoryForExercise(selectedExo);
-    } else {
-      setSeriesData([]);
-    }
-  }, [selectedExo, metric, loadHistoryForExercise]);
+    if (selectedExo) loadHistoryForExercise(selectedExo);
+    else setSeriesData([]);
+  }, [selectedExo, loadHistoryForExercise]);
 
   // UI: liste filtrée
   const filteredExercises = useMemo(() => {
@@ -176,19 +154,10 @@ export default function PerformanceScreen() {
     `${p.date.getDate().toString().padStart(2, '0')}/${(p.date.getMonth()+1).toString().padStart(2, '0')}`
   );
   const values = seriesData.map(p => Number(p.value?.toFixed(2)));
-
   const chartData = {
     labels: labels.length ? labels : [' '],
     datasets: [{ data: values.length ? values : [0] }]
   };
-
-  // Titles
-  const metricLabel = {
-    max_weight: 'Poids max (kg)',
-    total_volume: 'Volume total (kg·reps)',
-    est_1rm: '1RM estimée (kg)',
-    avg_reps: 'Répétitions moyennes'
-  }[metric];
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -243,92 +212,32 @@ export default function PerformanceScreen() {
         )}
       />
 
-      {/* Contrôles d’affichage */}
-      <View style={styles.controls}>
-        <View style={styles.controlGroup}>
-          <Text style={styles.controlLabel}>Affichage</Text>
-          <View style={styles.selectorRow}>
-            <TouchableOpacity
-              style={[styles.selectorBtn, chartType === 'line' && styles.selectorBtnActive]}
-              onPress={() => setChartType('line')}
-            >
-              <Text style={styles.selectorText}>Courbe</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.selectorBtn, chartType === 'bar' && styles.selectorBtnActive]}
-              onPress={() => setChartType('bar')}
-            >
-              <Text style={styles.selectorText}>Barres</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.controlGroup}>
-          <Text style={styles.controlLabel}>Métrique</Text>
-          <View style={styles.selectorRowWrap}>
-            {[
-              { key: 'max_weight', label: 'Poids max' },
-              { key: 'total_volume', label: 'Volume total' },
-              { key: 'est_1rm', label: '1RM estimée' },
-              { key: 'avg_reps', label: 'Rép. moy.' },
-            ].map(m => (
-              <TouchableOpacity
-                key={m.key}
-                style={[styles.selectorSmall, metric === m.key && styles.selectorBtnActive]}
-                onPress={() => setMetric(m.key)}
-              >
-                <Text style={styles.selectorText}>{m.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </View>
-
       {/* Graph */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>
-          {selectedExo ? `${selectedExo.nom} — ${metricLabel}` : 'Sélectionnez un exercice'}
+          {selectedExo ? `${selectedExo.nom} — Poids max (kg)` : 'Sélectionnez un exercice'}
         </Text>
 
         {loading ? (
           <ActivityIndicator color="#00aaff" style={{ marginVertical: 20 }} />
         ) : selectedExo ? (
           seriesData.length > 0 ? (
-            chartType === 'line' ? (
-              <LineChart
-                data={chartData}
-                width={screenWidth - 40}
-                height={230}
-                chartConfig={{
-                  backgroundColor: '#1e1e1e',
-                  backgroundGradientFrom: '#1e1e1e',
-                  backgroundGradientTo: '#1e1e1e',
-                  decimalPlaces: 1,
-                  color: () => '#00aaff',
-                  labelColor: () => '#fff',
-                  propsForDots: { r: '3', strokeWidth: '1', stroke: '#fff' },
-                }}
-                bezier
-                style={{ borderRadius: 12, marginTop: 8 }}
-              />
-            ) : (
-              <BarChart
-                data={chartData}
-                width={screenWidth - 40}
-                height={230}
-                chartConfig={{
-                  backgroundColor: '#1e1e1e',
-                  backgroundGradientFrom: '#1e1e1e',
-                  backgroundGradientTo: '#1e1e1e',
-                  decimalPlaces: 1,
-                  color: () => '#00aaff',
-                  labelColor: () => '#fff',
-                }}
-                style={{ borderRadius: 12, marginTop: 8 }}
-                fromZero
-                showBarTops={false}
-              />
-            )
+            <LineChart
+              data={chartData}
+              width={screenWidth - 40}
+              height={230}
+              chartConfig={{
+                backgroundColor: '#1e1e1e',
+                backgroundGradientFrom: '#1e1e1e',
+                backgroundGradientTo: '#1e1e1e',
+                decimalPlaces: 1,
+                color: () => '#00aaff',
+                labelColor: () => '#fff',
+                propsForDots: { r: '3', strokeWidth: '1', stroke: '#fff' },
+              }}
+              bezier
+              style={{ borderRadius: 12, marginTop: 8 }}
+            />
           ) : (
             <Text style={{ color: '#aaa', marginTop: 10, fontStyle: 'italic' }}>
               Aucune donnée trouvée pour cet exercice.
@@ -372,21 +281,6 @@ const styles = StyleSheet.create({
   },
   rowText: { color: '#fff', fontSize: 15 },
 
-  controls: { marginTop: 14, marginBottom: 6 },
-  controlGroup: { marginBottom: 10 },
-  controlLabel: { color: '#ccc', marginBottom: 4 },
-  selectorRow: { flexDirection: 'row', gap: 8 },
-  selectorRowWrap: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  selectorBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#2a2a2a' },
-  selectorSmall: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#2a2a2a' },
-  selectorBtnActive: { backgroundColor: '#004a68', borderWidth: 1, borderColor: '#00aaff' },
-  selectorText: { color: '#fff' },
-
-  card: {
-    backgroundColor: '#252525',
-    borderRadius: 14,
-    padding: 14,
-    marginTop: 10,
-  },
+  card: { backgroundColor: '#252525', borderRadius: 14, padding: 14, marginTop: 10 },
   cardTitle: { color: '#fff', fontWeight: '600' },
 });

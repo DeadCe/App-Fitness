@@ -1,7 +1,8 @@
+// screens/LancerSeanceScreen.js
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
-  Alert, Modal, FlatList, BackHandler, AppState
+  Alert, Modal, FlatList, BackHandler, AppState, Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, getDoc, getDocs, collection, addDoc } from 'firebase/firestore';
@@ -10,7 +11,7 @@ import { db, auth } from '../firebase';
 const genSessionId = () => `sess_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
 
 export default function LancerSeanceScreen({ route, navigation }) {
-  const { idSeance } = route.params;
+  const { idSeance, autoResume } = route.params || {}; // ⬅️ prise en charge autoResume
   const [seance, setSeance] = useState(null);
   const [exercicesMap, setExercicesMap] = useState({});
   const [performances, setPerformances] = useState({});
@@ -18,8 +19,8 @@ export default function LancerSeanceScreen({ route, navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [exoRemplacementIndex, setExoRemplacementIndex] = useState(null);
 
-  // ---- gestion session brouillon
-  const [sessionId] = useState(() => genSessionId()); // id unique pour cette séance en cours
+  // ---- session / draft
+  const [sessionId] = useState(() => genSessionId());
   const draftKeyRef = useRef(null);
   const [isDirty, setIsDirty] = useState(false);
   const saveTimer = useRef(null);
@@ -29,60 +30,66 @@ export default function LancerSeanceScreen({ route, navigation }) {
     draftKeyRef.current = `draft:seance:${user?.uid || 'anon'}:${idSeance}:${sessionId}`;
   }, [idSeance, sessionId]);
 
-  // Charger séance + exercices + brouillon (si existant)
   useEffect(() => {
     const charger = async () => {
       try {
         if (!idSeance) return;
 
-        // Charge la séance
+        // 1) séance
         const docRef = doc(db, 'seances', idSeance);
         const docSnap = await getDoc(docRef);
         if (!docSnap.exists()) throw new Error('Séance non trouvée');
-
         const seanceData = { id: docSnap.id, ...docSnap.data() };
         setSeance(seanceData);
 
-        // Charge exercices dispo (propres + publics)
+        // 2) exercices dispo
         const utilisateur = auth.currentUser;
         const snapshotExos = await getDocs(collection(db, 'exercices'));
         const listeExos = snapshotExos.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(ex => ex.auteur === utilisateur.uid || ex.public === true);
-
         const map = {};
         listeExos.forEach(exo => { map[exo.id] = exo; });
         setExercicesMap(map);
 
-        // Restaure un éventuel brouillon
+        // 3) brouillon (reprise auto si demandé)
         const draftKeyPrefix = `draft:seance:${utilisateur?.uid || 'anon'}:${idSeance}:`;
         const allKeys = await AsyncStorage.getAllKeys();
         const keys = allKeys.filter(k => k.startsWith(draftKeyPrefix));
+
         if (keys.length) {
-          // On prend la plus récente (tri asc sur suffixe ISO/epoch → prends la dernière)
-          keys.sort();
+          keys.sort(); // prend le plus récent
           const lastKey = keys[keys.length - 1];
           const raw = await AsyncStorage.getItem(lastKey);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            // si le draft était d’une autre sessionId mais même idSeance, on peut proposer de reprendre
-            Alert.alert(
-              'Reprendre la séance ?',
-              `Une séance en cours a été retrouvée.`,
-              [
-                { text: 'Ignorer', style: 'cancel' },
-                {
-                  text: 'Reprendre',
-                  onPress: () => {
-                    if (parsed?.exercicesTemp) setExercicesTemp(parsed.exercicesTemp);
-                    if (parsed?.performances) setPerformances(parsed.performances);
-                  }
-                }
-              ]
-            );
+          const parsed = raw ? JSON.parse(raw) : null;
+
+          const applyDraft = () => {
+            if (parsed?.exercicesTemp) setExercicesTemp(parsed.exercicesTemp);
+            if (parsed?.performances) setPerformances(parsed.performances);
+          };
+
+          if (autoResume) {
+            // ⬅️ reprise silencieuse (venant du bandeau Accueil)
+            applyDraft();
+          } else {
+            // comportement classique : proposer Reprendre / Ignorer
+            if (Platform.OS === 'web') {
+              const ok = window.confirm('Une séance en cours a été retrouvée. Voulez-vous la reprendre ?');
+              if (ok) applyDraft();
+              else setExercicesTemp(seanceData.exercices || []);
+            } else {
+              Alert.alert(
+                'Reprendre la séance ?',
+                'Une séance en cours a été retrouvée.',
+                [
+                  { text: 'Ignorer', style: 'cancel', onPress: () => setExercicesTemp(seanceData.exercices || []) },
+                  { text: 'Reprendre', onPress: applyDraft },
+                ]
+              );
+            }
           }
         } else {
-          // pas de brouillon → initialise avec la séance
+          // pas de brouillon → init avec la séance
           setExercicesTemp(seanceData.exercices || []);
         }
       } catch (err) {
@@ -91,9 +98,9 @@ export default function LancerSeanceScreen({ route, navigation }) {
       }
     };
     charger();
-  }, [idSeance]);
+  }, [idSeance, autoResume]);
 
-  // Autosave (debounce) du brouillon de séance
+  // autosave (debounce)
   useEffect(() => {
     setIsDirty(true);
     if (!draftKeyRef.current) return;
@@ -117,7 +124,7 @@ export default function LancerSeanceScreen({ route, navigation }) {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [exercicesTemp, performances, seance?.nom, idSeance, sessionId]);
 
-  // Sauvegarde si l’app part en arrière-plan
+  // background save
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (state) => {
       if (state !== 'active' && draftKeyRef.current) {
@@ -138,17 +145,22 @@ export default function LancerSeanceScreen({ route, navigation }) {
     return () => sub.remove();
   }, [exercicesTemp, performances, seance?.nom, idSeance, sessionId]);
 
-  // Garde de navigation (avant retour)
+  // garde retour (avec fallback web)
   useEffect(() => {
     const confirmLeave = (action) => {
-      Alert.alert(
-        'Quitter la séance ?',
-        "Vos saisies non validées resteront en brouillon.",
-        [
-          { text: 'Rester', style: 'cancel' },
-          { text: 'Quitter', style: 'destructive', onPress: () => navigation.dispatch(action) },
-        ]
-      );
+      if (Platform.OS === 'web') {
+        const ok = window.confirm('Quitter la séance ? Vos saisies resteront en brouillon.');
+        if (ok) navigation.dispatch(action);
+      } else {
+        Alert.alert(
+          'Quitter la séance ?',
+          'Vos saisies non validées resteront en brouillon.',
+          [
+            { text: 'Rester', style: 'cancel' },
+            { text: 'Quitter', style: 'destructive', onPress: () => navigation.dispatch(action) },
+          ]
+        );
+      }
     };
 
     const beforeRemove = navigation.addListener('beforeRemove', (e) => {
@@ -177,7 +189,7 @@ export default function LancerSeanceScreen({ route, navigation }) {
       nomExercice: exercicesMap[exoId]?.nom || undefined,
       utilisateursChoisis: [utilisateur],
       performancesExistantes: performances[exoId],
-      sessionId, // << important pour isoler les brouillons par séance + exercice
+      sessionId,
       onSave: (nouvellePerf) => {
         setPerformances((prev) => ({ ...prev, [exoId]: nouvellePerf }));
       },
@@ -206,8 +218,8 @@ export default function LancerSeanceScreen({ route, navigation }) {
       });
 
       const nouvelleEntree = {
-        date: new Date(), // Timestamp natif → Firestore le stockera en Timestamp si configuré, sinon string OK
-        sessionId,        // << on stocke aussi l’ID de séance locale
+        date: new Date(),
+        sessionId,
         seance: seance?.nom || '',
         utilisateurId: utilisateur.uid,
         exercices: exercicesEnregistrements,
@@ -216,10 +228,7 @@ export default function LancerSeanceScreen({ route, navigation }) {
 
       await addDoc(collection(db, 'historiqueSeances'), nouvelleEntree);
 
-      // Nettoyage du brouillon de séance
-      if (draftKeyRef.current) {
-        await AsyncStorage.removeItem(draftKeyRef.current);
-      }
+      if (draftKeyRef.current) await AsyncStorage.removeItem(draftKeyRef.current);
       setIsDirty(false);
       navigation.replace('RécapitulatifSéance', { nouvelleEntree });
     } catch (err) {
@@ -255,7 +264,7 @@ export default function LancerSeanceScreen({ route, navigation }) {
       {exercicesTemp.map((exoId, index) => (
         <View key={`${exoId}-${index}`} style={styles.exerciceCard}>
           <TouchableOpacity onPress={() => allerSaisir(exoId)}>
-            <Text style={styles.exerciceText}>{exercicesMap[exoId]?.nom || 'Exercice inconnu'}</Text>
+            <Text style={styles.exerciceText}>{exercicesMap[exoId]?.nom || 'Exercice'}</Text>
             {performances[exoId] && <Text style={styles.valide}>✅ Enregistré</Text>}
           </TouchableOpacity>
           <TouchableOpacity onPress={() => ouvrirModal(index)} style={styles.switchButton}>

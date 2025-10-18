@@ -227,10 +227,13 @@ export default function AccueilScreen({ navigation }) {
 
   // actions bandeau
   const resumeOngoing = () => {
-    if (ongoingDraft?.idSeance) {
-      navigation.navigate('LancerSeanceScreen', { idSeance: ongoingDraft.idSeance });
-    }
-  };
+  if (ongoingDraft?.idSeance) {
+    navigation.navigate('LancerSeanceScreen', {
+      idSeance: ongoingDraft.idSeance,
+      autoResume: true, // ⬅️ reprend le brouillon directement
+    });
+  }
+};
   const abandonOngoing = async () => {
     try {
       if (ongoingDraft?.key) {

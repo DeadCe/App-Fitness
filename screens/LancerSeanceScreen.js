@@ -1,4 +1,3 @@
-// screens/LancerSeanceScreen.js
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
@@ -11,7 +10,7 @@ import { db, auth } from '../firebase';
 const genSessionId = () => `sess_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
 
 export default function LancerSeanceScreen({ route, navigation }) {
-  const { idSeance, autoResume } = route.params || {}; // ⬅️ prise en charge autoResume
+  const { idSeance, autoResume } = route.params || {};
   const [seance, setSeance] = useState(null);
   const [exercicesMap, setExercicesMap] = useState({});
   const [performances, setPerformances] = useState({});
@@ -19,30 +18,33 @@ export default function LancerSeanceScreen({ route, navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [exoRemplacementIndex, setExoRemplacementIndex] = useState(null);
 
-  // ---- session / draft
+  // session / draft refs
   const [sessionId] = useState(() => genSessionId());
   const draftKeyRef = useRef(null);
-  const [isDirty, setIsDirty] = useState(false);
+  const isFinalizingRef = useRef(false);       // ⬅️ coupe autosave + guard pendant Terminer
+  const isNavigatingSilentlyRef = useRef(false); // ⬅️ désactive le beforeRemove prompt
   const saveTimer = useRef(null);
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     const user = auth.currentUser;
     draftKeyRef.current = `draft:seance:${user?.uid || 'anon'}:${idSeance}:${sessionId}`;
   }, [idSeance, sessionId]);
 
+  // charge séance + exos + éventuel draft
   useEffect(() => {
     const charger = async () => {
       try {
         if (!idSeance) return;
 
-        // 1) séance
+        // séance
         const docRef = doc(db, 'seances', idSeance);
         const docSnap = await getDoc(docRef);
         if (!docSnap.exists()) throw new Error('Séance non trouvée');
         const seanceData = { id: docSnap.id, ...docSnap.data() };
         setSeance(seanceData);
 
-        // 2) exercices dispo
+        // exos dispo
         const utilisateur = auth.currentUser;
         const snapshotExos = await getDocs(collection(db, 'exercices'));
         const listeExos = snapshotExos.docs
@@ -52,13 +54,13 @@ export default function LancerSeanceScreen({ route, navigation }) {
         listeExos.forEach(exo => { map[exo.id] = exo; });
         setExercicesMap(map);
 
-        // 3) brouillon (reprise auto si demandé)
-        const draftKeyPrefix = `draft:seance:${utilisateur?.uid || 'anon'}:${idSeance}:`;
+        // draft (reprise auto si demandé)
+        const draftPrefix = `draft:seance:${utilisateur?.uid || 'anon'}:${idSeance}:`;
         const allKeys = await AsyncStorage.getAllKeys();
-        const keys = allKeys.filter(k => k.startsWith(draftKeyPrefix));
+        const keys = allKeys.filter(k => k.startsWith(draftPrefix));
 
         if (keys.length) {
-          keys.sort(); // prend le plus récent
+          keys.sort();
           const lastKey = keys[keys.length - 1];
           const raw = await AsyncStorage.getItem(lastKey);
           const parsed = raw ? JSON.parse(raw) : null;
@@ -69,10 +71,8 @@ export default function LancerSeanceScreen({ route, navigation }) {
           };
 
           if (autoResume) {
-            // ⬅️ reprise silencieuse (venant du bandeau Accueil)
             applyDraft();
           } else {
-            // comportement classique : proposer Reprendre / Ignorer
             if (Platform.OS === 'web') {
               const ok = window.confirm('Une séance en cours a été retrouvée. Voulez-vous la reprendre ?');
               if (ok) applyDraft();
@@ -89,7 +89,6 @@ export default function LancerSeanceScreen({ route, navigation }) {
             }
           }
         } else {
-          // pas de brouillon → init avec la séance
           setExercicesTemp(seanceData.exercices || []);
         }
       } catch (err) {
@@ -100,8 +99,9 @@ export default function LancerSeanceScreen({ route, navigation }) {
     charger();
   }, [idSeance, autoResume]);
 
-  // autosave (debounce)
+  // AUTOSAVE (debounce) — coupé si finalisation en cours
   useEffect(() => {
+    if (isFinalizingRef.current) return;        // ⬅️ coupe autosave
     setIsDirty(true);
     if (!draftKeyRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -124,10 +124,10 @@ export default function LancerSeanceScreen({ route, navigation }) {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [exercicesTemp, performances, seance?.nom, idSeance, sessionId]);
 
-  // background save
+  // background save (aussi coupé si finalisation)
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (state) => {
-      if (state !== 'active' && draftKeyRef.current) {
+      if (state !== 'active' && draftKeyRef.current && !isFinalizingRef.current) {
         try {
           await AsyncStorage.setItem(
             draftKeyRef.current,
@@ -145,9 +145,13 @@ export default function LancerSeanceScreen({ route, navigation }) {
     return () => sub.remove();
   }, [exercicesTemp, performances, seance?.nom, idSeance, sessionId]);
 
-  // garde retour (avec fallback web)
+  // Guard retour — désactivé si navigation silencieuse (finalisation)
   useEffect(() => {
     const confirmLeave = (action) => {
+      if (isNavigatingSilentlyRef.current) {
+        navigation.dispatch(action); // pas de prompt
+        return;
+      }
       if (Platform.OS === 'web') {
         const ok = window.confirm('Quitter la séance ? Vos saisies resteront en brouillon.');
         if (ok) navigation.dispatch(action);
@@ -164,19 +168,32 @@ export default function LancerSeanceScreen({ route, navigation }) {
     };
 
     const beforeRemove = navigation.addListener('beforeRemove', (e) => {
-      if (!isDirty) return; // rien à protéger
+      if (!isDirty || isNavigatingSilentlyRef.current) return; // rien à protéger
       e.preventDefault();
       confirmLeave(e.data.action);
     });
 
     const onBackPress = () => {
-      if (!isDirty) return false;
+      if (!isDirty || isNavigatingSilentlyRef.current) return false;
       confirmLeave({ type: 'GO_BACK' });
       return true;
     };
     const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
     return () => { beforeRemove(); backSub.remove(); };
   }, [navigation, isDirty]);
+
+  // helpers purge tous les drafts de cette séance (toutes sessions)
+  const purgeAllDraftsForSeance = async () => {
+    try {
+      const user = auth.currentUser;
+      const prefix = `draft:seance:${user?.uid || 'anon'}:${idSeance}:`;
+      const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith(prefix));
+      if (keys.length) await AsyncStorage.multiRemove(keys);
+    } catch (e) {
+      console.warn('Purge drafts error:', e);
+    }
+  };
 
   const allerSaisir = (exoId) => {
     const utilisateur = auth.currentUser;
@@ -203,6 +220,13 @@ export default function LancerSeanceScreen({ route, navigation }) {
       return;
     }
     try {
+      // ⬇️ coupe autosave + guard et purge tous les drafts
+      isFinalizingRef.current = true;
+      isNavigatingSilentlyRef.current = true;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      await purgeAllDraftsForSeance();
+      setIsDirty(false);
+
       const exercicesEnregistrements = exercicesTemp.map((exoId) => {
         const exo = exercicesMap[exoId];
         const perf = performances[exoId] || {};
@@ -227,13 +251,14 @@ export default function LancerSeanceScreen({ route, navigation }) {
       };
 
       await addDoc(collection(db, 'historiqueSeances'), nouvelleEntree);
-
-      if (draftKeyRef.current) await AsyncStorage.removeItem(draftKeyRef.current);
-      setIsDirty(false);
       navigation.replace('RécapitulatifSéance', { nouvelleEntree });
     } catch (err) {
       console.error('Erreur sauvegarde séance :', err);
       Alert.alert('Erreur', "Impossible d'enregistrer la séance.");
+      // si erreur, on réactive la garde/autosave
+      isFinalizingRef.current = false;
+      isNavigatingSilentlyRef.current = false;
+      setIsDirty(true);
     }
   };
 

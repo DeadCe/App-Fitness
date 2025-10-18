@@ -235,13 +235,18 @@ export default function AccueilScreen({ navigation }) {
   }
 };
   const abandonOngoing = async () => {
-    try {
-      if (ongoingDraft?.key) {
-        await AsyncStorage.removeItem(ongoingDraft.key);
-      }
-    } catch {}
-    setOngoingDraft(null);
-  };
+  try {
+    const user = auth.currentUser;
+    const prefix = `draft:seance:${user?.uid || 'anon'}:${ongoingDraft?.idSeance}:`;
+    const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith(prefix));
+    if (keys.length) {
+      await AsyncStorage.multiRemove(keys);
+    }
+  } catch (e) {
+    console.warn('Erreur suppression des brouillons :', e);
+  }
+  setOngoingDraft(null);
+};
 
   return (
     <SafeAreaView style={styles.container}>

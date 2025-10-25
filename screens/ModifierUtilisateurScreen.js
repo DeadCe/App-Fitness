@@ -25,8 +25,9 @@ export default function ModifierUtilisateurScreen({ navigation }) {
 
   // profil
   const [prenom, setPrenom] = useState('');
-  const [taille, setTaille] = useState('');           // string pour l’input (ex: "178")
+  const [taille, setTaille] = useState('');            // string pour l’input (ex: "178")
   const [anniversaire, setAnniversaire] = useState(''); // ex: "JJ/MM/AAAA"
+  const [sexe, setSexe] = useState(null);              // 'male' | 'female'
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -46,10 +47,12 @@ export default function ModifierUtilisateurScreen({ navigation }) {
         setPrenom(p.prenom || '');
         setTaille(p.taille ? String(p.taille) : '');
         setAnniversaire(p.anniversaire || ''); // on garde ton champ tel quel
+        setSexe(p.sexe || null);
       } else {
         setPrenom('');
         setTaille('');
         setAnniversaire('');
+        setSexe(null);
       }
       setDirty(false);
 
@@ -93,6 +96,7 @@ export default function ModifierUtilisateurScreen({ navigation }) {
           prenom: prenom || '',
           taille: tNum ?? null,
           anniversaire: anniversaire || '',
+          sexe: sexe || null,
           updatedAt: new Date(),
         },
         { merge: true }
@@ -137,7 +141,7 @@ export default function ModifierUtilisateurScreen({ navigation }) {
     ? finalPoints.map(p => {
         const d = p.d;
         const dd = String(d.getDate()).padStart(2, '0');
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).toString().padStart(2, '0');
         return `${dd}/${mm}`;
       })
     : [' '];
@@ -191,6 +195,22 @@ export default function ModifierUtilisateurScreen({ navigation }) {
         placeholder="Taille"
         placeholderTextColor="#999"
       />
+
+      <Text style={styles.label}>Sexe :</Text>
+      <View style={styles.segment}>
+        <TouchableOpacity
+          style={[styles.segmentBtn, sexe === 'male' && styles.segmentBtnActive]}
+          onPress={() => { setSexe('male'); setDirty(true); }}
+        >
+          <Text style={[styles.segmentText, sexe === 'male' && styles.segmentTextActive]}>Homme</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.segmentBtn, sexe === 'female' && styles.segmentBtnActive]}
+          onPress={() => { setSexe('female'); setDirty(true); }}
+        >
+          <Text style={[styles.segmentText, sexe === 'female' && styles.segmentTextActive]}>Femme</Text>
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.label}>Date de naissance :</Text>
       <TextInput
@@ -260,6 +280,27 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginBottom: 10
   },
+  segment: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  segmentBtn: {
+    flex: 1,
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  segmentBtnActive: {
+    borderColor: '#00aaff',
+    backgroundColor: '#00384D',
+  },
+  segmentText: { color: '#ccc', fontWeight: '600' },
+  segmentTextActive: { color: '#00aaff' },
   saveButton: {
     backgroundColor: '#00aaff',
     padding: 12,

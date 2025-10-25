@@ -31,6 +31,7 @@ import AjouterMesureScreen from './screens/AjouterMesureScreen';
 import HistoriqueSeancesScreen from './screens/HistoriqueSeancesScreen';
 import SeanceDetailScreen from './screens/SeanceDetailScreen';
 import PerformanceScreen from './screens/PerformanceScreen';
+import NutritionScreen from './screens/NutritionScreen';
 
 
 const Drawer = createDrawerNavigator();
@@ -57,6 +58,7 @@ function DrawerRoot() {
       <Drawer.Screen name="Paramètres" component={ParametresScreen} />
       <Drawer.Screen name="HistoriqueSeances" component={HistoriqueSeancesScreen} options={{ title: 'Historique des séances' }} />
       <Drawer.Screen name="Performance" component={PerformanceScreen} options={{ title: 'Performance' }} />
+      <Drawer.Screen name="Nutrition" component={NutritionScreen} />
     </Drawer.Navigator>
   );
 }

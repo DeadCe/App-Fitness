@@ -1,5 +1,13 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+} from 'react-native';
 import { db, auth } from '../firebase';
 import {
   collection,
@@ -7,10 +15,10 @@ import {
   where,
   getDocs,
   orderBy,
-  limit,
   doc,
   getDoc,
   setDoc,
+  limit,
 } from 'firebase/firestore';
 
 /* ========= Helpers ========= */
@@ -104,8 +112,6 @@ function computeMacroTargets({
 
 /* ========= Screen ========= */
 export default function NutritionScreen() {
-  const user = auth.currentUser;
-
   const [loading, setLoading] = useState(true);
   const [profilBase, setProfilBase] = useState({
     prenom: '',
@@ -119,6 +125,7 @@ export default function NutritionScreen() {
   const [goal, setGoal] = useState('cut'); // cut | maintain | bulk
   const [showHelp, setShowHelp] = useState(false);
 
+  // ==== CALCUL DES CIBLES ====
   const targets = useMemo(() => {
     const { tailleCm, anniversaire, sexe, poidsKg } = profilBase;
     const heightCm = toNum(tailleCm);
@@ -138,84 +145,64 @@ export default function NutritionScreen() {
     });
   }, [profilBase, activity, goal]);
 
-  /* ===== Chargement profil + dernière mesure avec MEGA fallback ===== */
-  const loadUserData = useCallback(async () => {
-    if (!user) {
+  // ==== CHARGER PROFIL + DERNIER POIDS (copie de ModifierUtilisateurScreen) ====
+  const loadUserData = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
       setLoading(false);
       return;
     }
 
     try {
-      let userDocData = null;
-
-      // 1) doc avec ID = uid
-      const directSnap = await getDoc(doc(db, 'utilisateurs', user.uid));
-      if (directSnap.exists()) {
-        userDocData = { id: directSnap.id, ...(directSnap.data() || {}) };
-      }
-
-      // helper de recherche par champ
-      const tryQuery = async (field, value) => {
-        if (!value || userDocData) return;
-        const qAlt = query(
-          collection(db, 'utilisateurs'),
-          where(field, '==', value),
-          limit(1)
-        );
-        const altSnap = await getDocs(qAlt);
-        if (!altSnap.empty) {
-          const d = altSnap.docs[0];
-          userDocData = { id: d.id, ...(d.data() || {}) };
-        }
-      };
-
-      // 2) champ uid
-      await tryQuery('uid', user.uid);
-      // 3) champ email
-      await tryQuery('email', user.email);
-      // 4) champ identifiant (dans ton addDoc de création)
-      await tryQuery('identifiant', user.email);
-
-      const base = {
-        prenom: userDocData?.prenom || userDocData?.identifiant || '',
-        tailleCm: userDocData?.taille ?? null,
-        anniversaire: userDocData?.anniversaire || '',
-        sexe: userDocData?.sexe || null,
+      // ---- profil (exactement comme sur Mon Profil)
+      const profilSnap = await getDoc(doc(db, 'utilisateurs', currentUser.uid));
+      let base = {
+        prenom: '',
+        tailleCm: null,
+        anniversaire: '',
+        sexe: null,
         poidsKg: null,
       };
 
-      // dernière mesure de poids
+      if (profilSnap.exists()) {
+        const p = profilSnap.data() || {};
+        base.prenom = p.prenom || p.identifiant || '';
+        base.tailleCm = p.taille ?? null;
+        base.anniversaire = p.anniversaire || '';
+        base.sexe = p.sexe || null; // pourra être null si tu ne l'as pas encore ajouté
+      }
+
+      // ---- dernière mesure de poids
       const qMes = query(
         collection(db, 'mesures'),
-        where('utilisateurId', '==', user.uid),
+        where('utilisateurId', '==', currentUser.uid),
         orderBy('date', 'desc'),
         limit(1)
       );
-      const mSnap = await getDocs(qMes);
-      if (!mSnap.empty) {
-        const row = mSnap.docs[0].data() || {};
+      const snapshot = await getDocs(qMes);
+      if (!snapshot.empty) {
+        const row = snapshot.docs[0].data() || {};
         base.poidsKg = toNum(row.poids) || null;
       }
 
       setProfilBase(base);
     } catch (e) {
-      console.error('Erreur chargement profil nutrition :', e);
-      Alert.alert(
-        'Erreur',
-        "Impossible de charger les données utilisateur pour la nutrition."
-      );
+      console.error('Erreur chargement profil/mesures (nutrition) :', e);
+      Alert.alert('Erreur', 'Impossible de charger vos informations pour la nutrition.');
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  };
 
   useEffect(() => {
     loadUserData();
-  }, [loadUserData]);
+  }, []);
 
-  /* ===== Sauvegarde profil nutrition (cibles) ===== */
+  // ==== SAUVEGARDE DU PROFIL NUTRITION ====
   const saveNutritionProfile = async () => {
-    if (!user) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
     if (!targets) {
       Alert.alert(
         'Infos manquantes',
@@ -227,9 +214,9 @@ export default function NutritionScreen() {
     try {
       const { calories, protein_g, carbs_g, fat_g, rmr } = targets;
       await setDoc(
-        doc(db, 'nutritionProfiles', user.uid),
+        doc(db, 'nutritionProfiles', currentUser.uid),
         {
-          uid: user.uid,
+          uid: currentUser.uid,
           goal,
           activityLevel: activity,
           label:
@@ -248,21 +235,13 @@ export default function NutritionScreen() {
       Alert.alert('OK', 'Profil nutrition enregistré.');
     } catch (e) {
       console.error(e);
-      Alert.alert(
-        'Erreur',
-        "Sauvegarde du profil nutrition impossible."
-      );
+      Alert.alert('Erreur', "Sauvegarde du profil nutrition impossible.");
     }
   };
 
   if (loading) {
     return (
-      <View
-        style={[
-          styles.container,
-          { justifyContent: 'center', alignItems: 'center' },
-        ]}
-      >
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator color="#00aaff" />
       </View>
     );
@@ -292,20 +271,13 @@ export default function NutritionScreen() {
           </Text>
         </Text>
         <Text style={styles.line}>
-          Taille :{' '}
-          <Text style={styles.hl}>
-            {p.tailleCm ? `${p.tailleCm} cm` : '—'}
-          </Text>
+          Taille : <Text style={styles.hl}>{p.tailleCm ? `${p.tailleCm} cm` : '—'}</Text>
         </Text>
         <Text style={styles.line}>
-          Date de naissance :{' '}
-          <Text style={styles.hl}>{p.anniversaire || '—'}</Text>
+          Date de naissance : <Text style={styles.hl}>{p.anniversaire || '—'}</Text>
         </Text>
         <Text style={styles.line}>
-          Dernier poids :{' '}
-          <Text style={styles.hl}>
-            {p.poidsKg ? `${p.poidsKg} kg` : '—'}
-          </Text>
+          Dernier poids : <Text style={styles.hl}>{p.poidsKg ? `${p.poidsKg} kg` : '—'}</Text>
         </Text>
       </View>
 
@@ -342,31 +314,25 @@ export default function NutritionScreen() {
         </View>
 
         {/* Mémo explicatif */}
-        <TouchableOpacity
-          onPress={() => setShowHelp((v) => !v)}
-          style={styles.memoBtn}
-        >
-          <Text style={styles.memoTitle}>
-            ℹ️ Comprendre le niveau d’activité
-          </Text>
+        <TouchableOpacity onPress={() => setShowHelp((v) => !v)} style={styles.memoBtn}>
+          <Text style={styles.memoTitle}>ℹ️ Comprendre le niveau d’activité</Text>
         </TouchableOpacity>
         {showHelp && (
           <View style={styles.memoBox}>
             <Text style={styles.memoLine}>
-              • <Text style={styles.hl}>Sédentaire</Text> : travail assis,
-              peu de pas (&lt; 6k/j), pas ou très peu de sport.
+              • <Text style={styles.hl}>Sédentaire</Text> : travail assis, peu de pas (&lt; 6k/j),
+              pas ou très peu de sport.
             </Text>
             <Text style={styles.memoLine}>
-              • <Text style={styles.hl}>Léger</Text> : 1–2 séances/semaine OU
-              6–9k pas/jour.
+              • <Text style={styles.hl}>Léger</Text> : 1–2 séances/semaine OU 6–9k pas/jour.
             </Text>
             <Text style={styles.memoLine}>
-              • <Text style={styles.hl}>Modéré</Text> : 3–5 séances/semaine,
-              beaucoup debout, 8–12k pas/jour.
+              • <Text style={styles.hl}>Modéré</Text> : 3–5 séances/semaine, beaucoup debout,
+              8–12k pas/jour.
             </Text>
             <Text style={styles.memoLine}>
-              • <Text style={styles.hl}>Élevé</Text> : travail physique ou
-              sportif avancé, 6+ séances/semaine.
+              • <Text style={styles.hl}>Élevé</Text> : travail physique ou sportif avancé,
+              6+ séances/semaine.
             </Text>
           </View>
         )}
@@ -404,43 +370,19 @@ export default function NutritionScreen() {
         <Text style={styles.cardTitle}>Cibles quotidiennes</Text>
         {canCompute ? (
           <>
-            <Bar
-              label="Calories"
-              value={targets.calories}
-              target={targets.calories}
-              unit="kcal"
-            />
-            <Bar
-              label="Protéines"
-              value={targets.protein_g}
-              target={targets.protein_g}
-              unit="g"
-            />
-            <Bar
-              label="Glucides"
-              value={targets.carbs_g}
-              target={targets.carbs_g}
-              unit="g"
-            />
-            <Bar
-              label="Lipides"
-              value={targets.fat_g}
-              target={targets.fat_g}
-              unit="g"
-            />
-            <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={saveNutritionProfile}
-            >
-              <Text style={styles.primaryBtnText}>
-                Enregistrer le profil nutrition
-              </Text>
+            <Bar label="Calories" value={targets.calories} target={targets.calories} unit="kcal" />
+            <Bar label="Protéines" value={targets.protein_g} target={targets.protein_g} unit="g" />
+            <Bar label="Glucides" value={targets.carbs_g} target={targets.carbs_g} unit="g" />
+            <Bar label="Lipides" value={targets.fat_g} target={targets.fat_g} unit="g" />
+
+            <TouchableOpacity style={styles.primaryBtn} onPress={saveNutritionProfile}>
+              <Text style={styles.primaryBtnText}>Enregistrer le profil nutrition</Text>
             </TouchableOpacity>
           </>
         ) : (
           <Text style={{ color: '#aaa' }}>
-            Infos insuffisantes pour calculer. Renseigne ton sexe, ta taille,
-            ta date de naissance et ajoute au moins une mesure de poids.
+            Infos insuffisantes pour calculer. Renseigne ton sexe, ta taille, ta date de naissance
+            et ajoute au moins une mesure de poids.
           </Text>
         )}
       </View>

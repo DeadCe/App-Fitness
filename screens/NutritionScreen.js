@@ -14,11 +14,9 @@ import {
   query,
   where,
   getDocs,
-  orderBy,
   doc,
   getDoc,
   setDoc,
-  limit,
 } from 'firebase/firestore';
 
 /* ========= Helpers ========= */
@@ -131,8 +129,7 @@ async function ensureUserDoc(currentUser, logCb) {
   // cherche un doc addDoc avec champ uid
   const qAlt = query(
     collection(db, 'utilisateurs'),
-    where('uid', '==', currentUser.uid),
-    limit(1)
+    where('uid', '==', currentUser.uid)
   );
   const altSnap = await getDocs(qAlt);
 
@@ -195,7 +192,7 @@ export default function NutritionScreen() {
     });
   }, [profilBase, activity, goal]);
 
-  // ==== CHARGER PROFIL + DERNIER POIDS AVEC DEBUG ====
+  // ==== CHARGER PROFIL + DERNIER POIDS (sans orderBy Firestore) ====
   const loadUserData = async () => {
     const currentUser = auth.currentUser;
 
@@ -223,17 +220,33 @@ export default function NutritionScreen() {
         poidsKg: null,
       };
 
-      // 2) récupérer la dernière mesure de poids
-      //   -> on copie EXACTEMENT la requête de ModifierUtilisateurScreen
+      // 2) récupérer les mesures et trouver la dernière côté client
       const qMes = query(
         collection(db, 'mesures'),
-        where('utilisateurId', '==', currentUser.uid),
-        orderBy('date', 'asc') // même ordre que dans l'écran Profil
+        where('utilisateurId', '==', currentUser.uid)
       );
       const snapshot = await getDocs(qMes);
+
       if (!snapshot.empty) {
-        const docs = snapshot.docs;
-        const last = docs[docs.length - 1].data() || {};
+        const docs = snapshot.docs.map((d) => d.data());
+        // tri JS par date croissante
+        docs.sort((a, b) => {
+          const da =
+            a.date && a.date.toDate
+              ? a.date.toDate()
+              : a.date
+              ? new Date(a.date)
+              : new Date(0);
+          const dbb =
+            b.date && b.date.toDate
+              ? b.date.toDate()
+              : b.date
+              ? new Date(b.date)
+              : new Date(0);
+          return da - dbb;
+        });
+
+        const last = docs[docs.length - 1] || {};
         base.poidsKg = toNum(last.poids) || null;
         log += `mesure trouvée: poids=${last.poids}`;
       } else {
@@ -438,7 +451,7 @@ export default function NutritionScreen() {
             <Bar label="Calories" value={targets.calories} target={targets.calories} unit="kcal" />
             <Bar label="Protéines" value={targets.protein_g} target={targets.protein_g} unit="g" />
             <Bar label="Glucides" value={targets.carbs_g} target={targets.carbs_g} unit="g" />
-             <Bar label="Lipides" value={targets.fat_g} target={targets.fat_g} unit="g" />
+            <Bar label="Lipides" value={targets.fat_g} target={targets.fat_g} unit="g" />
 
             <TouchableOpacity style={styles.primaryBtn} onPress={saveNutritionProfile}>
               <Text style={styles.primaryBtnText}>Enregistrer le profil nutrition</Text>

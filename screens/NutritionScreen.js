@@ -112,18 +112,21 @@ function computeMacroTargets({
 
 /**
  * Assure qu'il existe un doc utilisateurs/{uid}.
- * - Si doc(uid) existe -> on le renvoie.
- * - Sinon, on cherche un doc avec champ uid == currentUser.uid (créé par addDoc).
- *   - Si trouvé -> on copie ces données dans doc(uid) et on renvoie.
- * - Sinon, on crée un doc minimal avec uid/email/identifiant.
  */
-async function ensureUserDoc(currentUser) {
+async function ensureUserDoc(currentUser, logCb) {
+  let log = '';
+
   const ref = doc(db, 'utilisateurs', currentUser.uid);
   const snap = await getDoc(ref);
 
   if (snap.exists()) {
-    return { ref, data: snap.data() || {} };
+    const data = snap.data() || {};
+    log += `doc(uid) OK; champs: ${Object.keys(data).join(', ')}`;
+    logCb(log);
+    return { ref, data };
   }
+
+  log += 'doc(uid) inexistant; ';
 
   // cherche un doc addDoc avec champ uid
   const qAlt = query(
@@ -135,8 +138,9 @@ async function ensureUserDoc(currentUser) {
 
   if (!altSnap.empty) {
     const d = altSnap.docs[0].data() || {};
-    // on migre vers doc(uid)
     await setDoc(ref, d, { merge: true });
+    log += 'doc(uid) recréé à partir de uid; champs: ' + Object.keys(d).join(', ');
+    logCb(log);
     return { ref, data: d };
   }
 
@@ -148,6 +152,8 @@ async function ensureUserDoc(currentUser) {
     dateCreation: new Date(),
   };
   await setDoc(ref, base, { merge: true });
+  log += 'aucun doc trouvé; doc(uid) créé (minimal).';
+  logCb(log);
   return { ref, data: base };
 }
 
@@ -165,6 +171,9 @@ export default function NutritionScreen() {
   const [activity, setActivity] = useState('moderate');
   const [goal, setGoal] = useState('cut');
   const [showHelp, setShowHelp] = useState(false);
+
+  // DEBUG
+  const [debugInfo, setDebugInfo] = useState('');
 
   // ==== CALCUL DES CIBLES ====
   const targets = useMemo(() => {
@@ -186,17 +195,25 @@ export default function NutritionScreen() {
     });
   }, [profilBase, activity, goal]);
 
-  // ==== CHARGER PROFIL + DERNIER POIDS AVEC AUTO-MIGRATION ====
+  // ==== CHARGER PROFIL + DERNIER POIDS AVEC DEBUG ====
   const loadUserData = async () => {
     const currentUser = auth.currentUser;
+
+    let log = '';
     if (!currentUser) {
+      log += 'auth.currentUser = null';
+      setDebugInfo(log);
       setLoading(false);
       return;
     }
 
+    log += `auth uid=${currentUser.uid}, email=${currentUser.email} | `;
+
     try {
       // 1) s'assurer qu'il existe un doc utilisateurs/{uid}
-      const { data } = await ensureUserDoc(currentUser);
+      const { data } = await ensureUserDoc(currentUser, (extraLog) => {
+        log += extraLog + ' | ';
+      });
 
       const base = {
         prenom: data.prenom || data.identifiant || '',
@@ -217,12 +234,18 @@ export default function NutritionScreen() {
       if (!snapshot.empty) {
         const row = snapshot.docs[0].data() || {};
         base.poidsKg = toNum(row.poids) || null;
+        log += `mesure trouvée: poids=${row.poids}`;
+      } else {
+        log += 'aucune mesure trouvée';
       }
 
       setProfilBase(base);
+      setDebugInfo(log);
     } catch (e) {
       console.error('Erreur chargement profil/mesures (nutrition) :', e);
       Alert.alert('Erreur', 'Impossible de charger vos informations pour la nutrition.');
+      log += 'ERREUR: ' + String(e?.message || e);
+      setDebugInfo(log);
     } finally {
       setLoading(false);
     }
@@ -287,6 +310,13 @@ export default function NutritionScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Nutrition — Profil & Cibles</Text>
+
+      {/* DEBUG */}
+      <View style={styles.debugBox}>
+        <Text style={{ color: '#ffb' }}>
+          DEBUG : {debugInfo || 'aucune info'}
+        </Text>
+      </View>
 
       {/* Données utilisateur */}
       <View style={styles.card}>
@@ -467,6 +497,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     textAlign: 'center',
     marginBottom: 10,
+  },
+  debugBox: {
+    backgroundColor: '#402',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 6,
   },
   card: {
     backgroundColor: '#252525',

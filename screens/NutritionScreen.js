@@ -26,6 +26,7 @@ function parseBirthday(frStr) {
   const d = new Date(Number(aaaa), Number(mm) - 1, Number(jj));
   return isNaN(d.getTime()) ? null : d;
 }
+
 function computeAge(birthDate) {
   if (!birthDate) return null;
   const now = new Date();
@@ -34,6 +35,7 @@ function computeAge(birthDate) {
   if (m < 0 || (m === 0 && now.getDate() < birthDate.getDate())) age--;
   return age;
 }
+
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 /* ========= Formules ========= */
@@ -45,6 +47,7 @@ function mifflinStJeor({ sex, weightKg, heightCm, ageY }) {
     (sex === 'female' ? -161 : -5);
   return Math.round(base);
 }
+
 function palFactor(level) {
   const map = {
     sedentary: 1.55,
@@ -54,6 +57,7 @@ function palFactor(level) {
   };
   return map[level] || 1.8;
 }
+
 function targetCalories(rmr, level, goal) {
   const tdee = rmr * palFactor(level);
   const adjust =
@@ -62,22 +66,26 @@ function targetCalories(rmr, level, goal) {
     1.0;
   return Math.round(tdee * adjust);
 }
+
 function proteinGramsPerDay({ goal, weightKg }) {
   const min = goal === 'cut' ? 1.6 : 1.6;
   const max = goal === 'cut' ? 2.4 : 2.2;
   return Math.round(weightKg * ((min + max) / 2));
 }
+
 function fatGramsPerDay({ calories, weightKg }) {
   const pct = 0.3;
   const gFromPct = Math.round((calories * pct) / 9);
   const floor = Math.round(0.8 * weightKg);
   return Math.max(gFromPct, floor);
 }
+
 function carbsGramsPerDay({ calories, protein_g, fat_g }) {
   const kcalUsed = protein_g * 4 + fat_g * 9;
   const carbsKcal = Math.max(0, calories - kcalUsed);
   return Math.round(carbsKcal / 4);
 }
+
 function computeMacroTargets({
   sex,
   weightKg,
@@ -130,7 +138,7 @@ export default function NutritionScreen() {
     });
   }, [profilBase, activity, goal]);
 
-  /* ===== Chargement profil + dernière mesure avec fallback ===== */
+  /* ===== Chargement profil + dernière mesure avec MEGA fallback ===== */
   const loadUserData = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -140,15 +148,18 @@ export default function NutritionScreen() {
     try {
       let userDocData = null;
 
-      // 1) tentative doc("utilisateurs", uid)
+      // 1) doc avec ID = uid
       const directSnap = await getDoc(doc(db, 'utilisateurs', user.uid));
       if (directSnap.exists()) {
         userDocData = { id: directSnap.id, ...(directSnap.data() || {}) };
-      } else {
-        // 2) fallback : doc créé par addDoc, avec champ uid
+      }
+
+      // helper de recherche par champ
+      const tryQuery = async (field, value) => {
+        if (!value || userDocData) return;
         const qAlt = query(
           collection(db, 'utilisateurs'),
-          where('uid', '==', user.uid),
+          where(field, '==', value),
           limit(1)
         );
         const altSnap = await getDocs(qAlt);
@@ -156,7 +167,14 @@ export default function NutritionScreen() {
           const d = altSnap.docs[0];
           userDocData = { id: d.id, ...(d.data() || {}) };
         }
-      }
+      };
+
+      // 2) champ uid
+      await tryQuery('uid', user.uid);
+      // 3) champ email
+      await tryQuery('email', user.email);
+      // 4) champ identifiant (dans ton addDoc de création)
+      await tryQuery('identifiant', user.email);
 
       const base = {
         prenom: userDocData?.prenom || userDocData?.identifiant || '',

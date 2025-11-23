@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { db, auth } from './firebase'; // ⬅️ change en '../firebase' si besoin
+import { db, auth } from '../firebase';
 import {
   collection,
   query,

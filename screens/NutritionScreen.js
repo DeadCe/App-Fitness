@@ -224,17 +224,18 @@ export default function NutritionScreen() {
       };
 
       // 2) récupérer la dernière mesure de poids
+      //   -> on copie EXACTEMENT la requête de ModifierUtilisateurScreen
       const qMes = query(
         collection(db, 'mesures'),
         where('utilisateurId', '==', currentUser.uid),
-        orderBy('date', 'desc'),
-        limit(1)
+        orderBy('date', 'asc') // même ordre que dans l'écran Profil
       );
       const snapshot = await getDocs(qMes);
       if (!snapshot.empty) {
-        const row = snapshot.docs[0].data() || {};
-        base.poidsKg = toNum(row.poids) || null;
-        log += `mesure trouvée: poids=${row.poids}`;
+        const docs = snapshot.docs;
+        const last = docs[docs.length - 1].data() || {};
+        base.poidsKg = toNum(last.poids) || null;
+        log += `mesure trouvée: poids=${last.poids}`;
       } else {
         log += 'aucune mesure trouvée';
       }
@@ -437,7 +438,7 @@ export default function NutritionScreen() {
             <Bar label="Calories" value={targets.calories} target={targets.calories} unit="kcal" />
             <Bar label="Protéines" value={targets.protein_g} target={targets.protein_g} unit="g" />
             <Bar label="Glucides" value={targets.carbs_g} target={targets.carbs_g} unit="g" />
-            <Bar label="Lipides" value={targets.fat_g} target={targets.fat_g} unit="g" />
+             <Bar label="Lipides" value={targets.fat_g} target={targets.fat_g} unit="g" />
 
             <TouchableOpacity style={styles.primaryBtn} onPress={saveNutritionProfile}>
               <Text style={styles.primaryBtnText}>Enregistrer le profil nutrition</Text>

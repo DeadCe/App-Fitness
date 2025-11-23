@@ -27,7 +27,7 @@ const toNum = (v) =>
 
 function parseBirthday(frStr) {
   if (!frStr || typeof frStr !== 'string') return null;
-  const s = frStr.trim().replace(/[.\-\s]/g, '/'); // remplace - . espaces par /
+  const s = frStr.trim().replace(/[.\-\s]/g, '/');
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) return null;
   const [, jj, mm, aaaa] = m;
@@ -110,6 +110,47 @@ function computeMacroTargets({
   return { calories, protein_g, carbs_g, fat_g, rmr };
 }
 
+/**
+ * Assure qu'il existe un doc utilisateurs/{uid}.
+ * - Si doc(uid) existe -> on le renvoie.
+ * - Sinon, on cherche un doc avec champ uid == currentUser.uid (créé par addDoc).
+ *   - Si trouvé -> on copie ces données dans doc(uid) et on renvoie.
+ * - Sinon, on crée un doc minimal avec uid/email/identifiant.
+ */
+async function ensureUserDoc(currentUser) {
+  const ref = doc(db, 'utilisateurs', currentUser.uid);
+  const snap = await getDoc(ref);
+
+  if (snap.exists()) {
+    return { ref, data: snap.data() || {} };
+  }
+
+  // cherche un doc addDoc avec champ uid
+  const qAlt = query(
+    collection(db, 'utilisateurs'),
+    where('uid', '==', currentUser.uid),
+    limit(1)
+  );
+  const altSnap = await getDocs(qAlt);
+
+  if (!altSnap.empty) {
+    const d = altSnap.docs[0].data() || {};
+    // on migre vers doc(uid)
+    await setDoc(ref, d, { merge: true });
+    return { ref, data: d };
+  }
+
+  // rien trouvé : on crée un doc basique à partir de l'auth
+  const base = {
+    uid: currentUser.uid,
+    email: currentUser.email || null,
+    identifiant: currentUser.email || null,
+    dateCreation: new Date(),
+  };
+  await setDoc(ref, base, { merge: true });
+  return { ref, data: base };
+}
+
 /* ========= Screen ========= */
 export default function NutritionScreen() {
   const [loading, setLoading] = useState(true);
@@ -121,8 +162,8 @@ export default function NutritionScreen() {
     poidsKg: null,
   });
 
-  const [activity, setActivity] = useState('moderate'); // sedentary | light | moderate | high
-  const [goal, setGoal] = useState('cut'); // cut | maintain | bulk
+  const [activity, setActivity] = useState('moderate');
+  const [goal, setGoal] = useState('cut');
   const [showHelp, setShowHelp] = useState(false);
 
   // ==== CALCUL DES CIBLES ====
@@ -145,7 +186,7 @@ export default function NutritionScreen() {
     });
   }, [profilBase, activity, goal]);
 
-  // ==== CHARGER PROFIL + DERNIER POIDS (copie de ModifierUtilisateurScreen) ====
+  // ==== CHARGER PROFIL + DERNIER POIDS AVEC AUTO-MIGRATION ====
   const loadUserData = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -154,25 +195,18 @@ export default function NutritionScreen() {
     }
 
     try {
-      // ---- profil (exactement comme sur Mon Profil)
-      const profilSnap = await getDoc(doc(db, 'utilisateurs', currentUser.uid));
-      let base = {
-        prenom: '',
-        tailleCm: null,
-        anniversaire: '',
-        sexe: null,
+      // 1) s'assurer qu'il existe un doc utilisateurs/{uid}
+      const { data } = await ensureUserDoc(currentUser);
+
+      const base = {
+        prenom: data.prenom || data.identifiant || '',
+        tailleCm: data.taille ?? null,
+        anniversaire: data.anniversaire || '',
+        sexe: data.sexe || null,
         poidsKg: null,
       };
 
-      if (profilSnap.exists()) {
-        const p = profilSnap.data() || {};
-        base.prenom = p.prenom || p.identifiant || '';
-        base.tailleCm = p.taille ?? null;
-        base.anniversaire = p.anniversaire || '';
-        base.sexe = p.sexe || null; // pourra être null si tu ne l'as pas encore ajouté
-      }
-
-      // ---- dernière mesure de poids
+      // 2) récupérer la dernière mesure de poids
       const qMes = query(
         collection(db, 'mesures'),
         where('utilisateurId', '==', currentUser.uid),

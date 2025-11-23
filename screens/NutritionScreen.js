@@ -111,20 +111,14 @@ function computeMacroTargets({
 /**
  * Assure qu'il existe un doc utilisateurs/{uid}.
  */
-async function ensureUserDoc(currentUser, logCb) {
-  let log = '';
-
+async function ensureUserDoc(currentUser) {
   const ref = doc(db, 'utilisateurs', currentUser.uid);
   const snap = await getDoc(ref);
 
   if (snap.exists()) {
     const data = snap.data() || {};
-    log += `doc(uid) OK; champs: ${Object.keys(data).join(', ')}`;
-    logCb(log);
     return { ref, data };
   }
-
-  log += 'doc(uid) inexistant; ';
 
   // cherche un doc addDoc avec champ uid
   const qAlt = query(
@@ -136,8 +130,6 @@ async function ensureUserDoc(currentUser, logCb) {
   if (!altSnap.empty) {
     const d = altSnap.docs[0].data() || {};
     await setDoc(ref, d, { merge: true });
-    log += 'doc(uid) recréé à partir de uid; champs: ' + Object.keys(d).join(', ');
-    logCb(log);
     return { ref, data: d };
   }
 
@@ -149,8 +141,6 @@ async function ensureUserDoc(currentUser, logCb) {
     dateCreation: new Date(),
   };
   await setDoc(ref, base, { merge: true });
-  log += 'aucun doc trouvé; doc(uid) créé (minimal).';
-  logCb(log);
   return { ref, data: base };
 }
 
@@ -168,9 +158,6 @@ export default function NutritionScreen() {
   const [activity, setActivity] = useState('moderate');
   const [goal, setGoal] = useState('cut');
   const [showHelp, setShowHelp] = useState(false);
-
-  // DEBUG
-  const [debugInfo, setDebugInfo] = useState('');
 
   // ==== CALCUL DES CIBLES ====
   const targets = useMemo(() => {
@@ -192,25 +179,16 @@ export default function NutritionScreen() {
     });
   }, [profilBase, activity, goal]);
 
-  // ==== CHARGER PROFIL + DERNIER POIDS (sans orderBy Firestore) ====
+  // ==== CHARGER PROFIL + DERNIER POIDS ====
   const loadUserData = async () => {
     const currentUser = auth.currentUser;
-
-    let log = '';
     if (!currentUser) {
-      log += 'auth.currentUser = null';
-      setDebugInfo(log);
       setLoading(false);
       return;
     }
 
-    log += `auth uid=${currentUser.uid}, email=${currentUser.email} | `;
-
     try {
-      // 1) s'assurer qu'il existe un doc utilisateurs/{uid}
-      const { data } = await ensureUserDoc(currentUser, (extraLog) => {
-        log += extraLog + ' | ';
-      });
+      const { data } = await ensureUserDoc(currentUser);
 
       const base = {
         prenom: data.prenom || data.identifiant || '',
@@ -220,7 +198,6 @@ export default function NutritionScreen() {
         poidsKg: null,
       };
 
-      // 2) récupérer les mesures et trouver la dernière côté client
       const qMes = query(
         collection(db, 'mesures'),
         where('utilisateurId', '==', currentUser.uid)
@@ -229,7 +206,6 @@ export default function NutritionScreen() {
 
       if (!snapshot.empty) {
         const docs = snapshot.docs.map((d) => d.data());
-        // tri JS par date croissante
         docs.sort((a, b) => {
           const da =
             a.date && a.date.toDate
@@ -248,18 +224,12 @@ export default function NutritionScreen() {
 
         const last = docs[docs.length - 1] || {};
         base.poidsKg = toNum(last.poids) || null;
-        log += `mesure trouvée: poids=${last.poids}`;
-      } else {
-        log += 'aucune mesure trouvée';
       }
 
       setProfilBase(base);
-      setDebugInfo(log);
     } catch (e) {
       console.error('Erreur chargement profil/mesures (nutrition) :', e);
       Alert.alert('Erreur', 'Impossible de charger vos informations pour la nutrition.');
-      log += 'ERREUR: ' + String(e?.message || e);
-      setDebugInfo(log);
     } finally {
       setLoading(false);
     }
@@ -325,13 +295,6 @@ export default function NutritionScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Nutrition — Profil & Cibles</Text>
 
-      {/* DEBUG */}
-      <View style={styles.debugBox}>
-        <Text style={{ color: '#ffb' }}>
-          DEBUG : {debugInfo || 'aucune info'}
-        </Text>
-      </View>
-
       {/* Données utilisateur */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Données utilisateur</Text>
@@ -391,12 +354,11 @@ export default function NutritionScreen() {
           ))}
         </View>
 
-        {/* Mémo explicatif */}
         <TouchableOpacity onPress={() => setShowHelp((v) => !v)} style={styles.memoBtn}>
           <Text style={styles.memoTitle}>ℹ️ Comprendre le niveau d’activité</Text>
         </TouchableOpacity>
         {showHelp && (
-          <View style={styles.memoBox}>
+          <View className="memoBox" style={styles.memoBox}>
             <Text style={styles.memoLine}>
               • <Text style={styles.hl}>Sédentaire</Text> : travail assis, peu de pas (&lt; 6k/j),
               pas ou très peu de sport.
@@ -511,12 +473,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     textAlign: 'center',
     marginBottom: 10,
-  },
-  debugBox: {
-    backgroundColor: '#402',
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 6,
   },
   card: {
     backgroundColor: '#252525',

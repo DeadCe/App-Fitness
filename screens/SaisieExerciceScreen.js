@@ -154,9 +154,13 @@ export default function SaisieExerciceScreen({ route, navigation }) {
           }));
 
           if (norm.some((s) => s.poids > 0)) {
-            setLastPerf(norm);
-            break;
-          }
+  const d = seance.date ? toJSDate(seance.date) : null;
+  setLastPerf({
+    date: d,
+    series: norm,
+  });
+  break;
+}
         }
       } catch (e) {
         console.error('ERREUR récupération perf précédente :', e);
@@ -217,15 +221,22 @@ export default function SaisieExerciceScreen({ route, navigation }) {
 
       {/* Encart perf précédente */}
       {lastPerf && (
-        <View style={styles.lastPerfBox}>
-          <Text style={styles.lastPerfTitle}>Dernières performances :</Text>
-          {lastPerf.map((serie, i) => (
-            <Text key={i} style={styles.lastPerfText}>
-              Série {i + 1} : {serie.poids} kg x {serie.repetitions} reps
-            </Text>
-          ))}
-        </View>
-      )}
+  <View style={styles.lastPerfBox}>
+    <Text style={styles.lastPerfTitle}>
+      Dernières performances
+      {lastPerf.date
+        ? ` — séance du ${lastPerf.date.toLocaleDateString('fr-FR')}`
+        : ''}
+      :
+    </Text>
+    {lastPerf.series.map((serie, i) => (
+      <Text key={i} style={styles.lastPerfText}>
+        Série {i + 1} : {serie.poids} kg x {serie.repetitions} reps
+      </Text>
+    ))}
+  </View>
+)}
+
 
       {utilisateursChoisis.map((utilisateur, i) => (
         <View key={i} style={styles.utilisateurBloc}>

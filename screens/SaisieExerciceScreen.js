@@ -85,7 +85,7 @@ export default function SaisieExerciceScreen({ route, navigation }) {
     return utilisateursChoisis.map(() => [{ poids: 0, repetitions: 8 }]);
   });
 
-  const [lastPerf, setLastPerf] = useState(null);
+    const [lastPerf, setLastPerf] = useState(null);
 
   useEffect(() => {
     const fetchLastPerf = async () => {
@@ -96,54 +96,61 @@ export default function SaisieExerciceScreen({ route, navigation }) {
         if (!user) return;
 
         const exerciceKeyId = route.params?.idExercice || idExercice || null;
-        const exerciceKeyName = getExerciseNameFromParams(route.params) || exerciseName || null;
+        const exerciceKeyName =
+          getExerciseNameFromParams(route.params) || exerciseName || null;
         if (!exerciceKeyId && !exerciceKeyName) return;
 
-        let rows = [];
-        try {
-          const q1 = query(
-            collection(db, 'historiqueSeances'),
-            where('utilisateurId', '==', user.uid),
-            orderBy('date', 'desc'),
-            limit(20),
-          );
-          const snap1 = await getDocs(q1);
-          rows = snap1.docs.map((d) => ({ id: d.id, ...d.data() }));
-        } catch {
-          const q2 = query(
-            collection(db, 'historiqueSeances'),
-            where('utilisateurId', '==', user.uid),
-            limit(30),
-          );
-          const snap2 = await getDocs(q2);
-          rows = snap2.docs.map((d) => ({ id: d.id, ...d.data() }));
-          rows = rows
-            .map((r) => ({ ...r, _d: r.date ? toJSDate(r.date) : r.createdAt ? toJSDate(r.createdAt) : null }))
-            .filter((r) => r._d && !Number.isNaN(r._d))
-            .sort((a, b) => b._d - a._d)
-            .slice(0, 20);
-        }
+        // 1) On récupère toutes les séances de l'utilisateur
+        const q = query(
+          collection(db, 'historiqueSeances'),
+          where('utilisateurId', '==', user.uid)
+        );
+        const snap = await getDocs(q);
+        let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+        // 2) On leur ajoute une vraie date JS pour trier
+        rows = rows
+          .map((r) => ({
+            ...r,
+            _d: r.date
+              ? toJSDate(r.date)
+              : r.createdAt
+              ? toJSDate(r.createdAt)
+              : null,
+          }))
+          .filter((r) => r._d && !Number.isNaN(r._d))
+          .sort((a, b) => b._d - a._d); // plus récent -> plus ancien
+
+        // 3) On cherche la première séance (la plus récente) où l'exo apparaît
         for (const seance of rows) {
+          // on ignore la séance en cours
           if (sessionId && seance.sessionId && seance.sessionId === sessionId) continue;
           if (seance.terminee === false) continue;
 
-          const exercices = Array.isArray(seance.exercices) ? seance.exercices : [];
+          const exercices = Array.isArray(seance.exercices)
+            ? seance.exercices
+            : [];
           const exerciceTrouve = exercices.find((ex) => {
             const hasId =
               (ex.idExercice && exerciceKeyId && ex.idExercice === exerciceKeyId) ||
               (ex.id && exerciceKeyId && ex.id === exerciceKeyId);
-            const hasName = exerciceKeyName && (ex.nomExercice === exerciceKeyName || ex.nom === exerciceKeyName);
+            const hasName =
+              exerciceKeyName &&
+              (ex.nomExercice === exerciceKeyName || ex.nom === exerciceKeyName);
             return hasId || hasName;
           });
           if (!exerciceTrouve) continue;
 
           let series =
-            (Array.isArray(exerciceTrouve.series) && exerciceTrouve.series.length > 0 && exerciceTrouve.series) ||
+            (Array.isArray(exerciceTrouve.series) &&
+              exerciceTrouve.series.length > 0 &&
+              exerciceTrouve.series) ||
             (exerciceTrouve.performances?.series &&
               Array.isArray(exerciceTrouve.performances.series) &&
               exerciceTrouve.performances.series) ||
-            (Array.isArray(exerciceTrouve.sets) && exerciceTrouve.sets.length > 0 && exerciceTrouve.sets) ||
+            (Array.isArray(exerciceTrouve.sets) &&
+              exerciceTrouve.sets.length > 0 &&
+              exerciceTrouve.sets) ||
             null;
 
           if (!series) continue;
@@ -153,14 +160,13 @@ export default function SaisieExerciceScreen({ route, navigation }) {
             repetitions: toNum(s.repetitions || s.reps || 0),
           }));
 
-          if (norm.some((s) => s.poids > 0)) {
-  const d = seance.date ? toJSDate(seance.date) : null;
-  setLastPerf({
-    date: d,
-    series: norm,
-  });
-  break;
-}
+          // 👉 On garde cette séance (la plus récente trouvée),
+          //    même si tous les poids sont à 0.
+          setLastPerf({
+            date: seance._d || null,
+            series: norm,
+          });
+          break;
         }
       } catch (e) {
         console.error('ERREUR récupération perf précédente :', e);

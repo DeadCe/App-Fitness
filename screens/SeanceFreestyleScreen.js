@@ -63,20 +63,29 @@ export default function SeanceFreestyleScreen() {
         if (!exo) return null;
 
         // Nettoyage des performances
-        const perfs = performances[idEx] || {};
-        return {
-          idExercice: idEx,
-          nom: exo.nom || 'Sans nom',
-          performances: {
-            nom: perfs.nom || 'Sans nom',
-            series: Array.isArray(perfs.series)
-              ? perfs.series.map((s) => ({
-                  poids: s?.poids ?? 0,
-                  repetitions: s?.repetitions ?? 0,
-                }))
-              : [],
-          },
-        };
+const perfs = performances[idEx] || {};
+
+// ✅ le commentaire DOIT être défini ici
+const commentaire =
+  typeof perfs.commentaire === 'string'
+    ? perfs.commentaire.trim()
+    : '';
+
+return {
+  idExercice: idEx,
+  nom: exo.nom || 'Sans nom',
+  performances: {
+    nom: perfs.nom || 'Sans nom',
+    series: Array.isArray(perfs.series)
+      ? perfs.series.map((s) => ({
+          poids: s?.poids ?? 0,
+          repetitions: s?.repetitions ?? 0,
+        }))
+      : [],
+    ...(commentaire ? { commentaire } : {}),
+  },
+};
+
       })
       .filter(Boolean); // supprime les nulls
 

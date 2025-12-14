@@ -234,11 +234,19 @@ export default function LancerSeanceScreen({ route, navigation }) {
           poids: Number(s?.poids) || 0,
           repetitions: Number(s?.repetitions) || 0,
         }));
-        return {
-          idExercice: exoId,
-          nom: exo?.nom || 'Sans nom',
-          performances: { series: seriesNettoyees },
-        };
+        
+       const commentaire =
+  typeof perf.commentaire === 'string' ? perf.commentaire.trim() : '';
+
+return {
+  idExercice: exoId,
+  nom: exo?.nom || 'Sans nom',
+  performances: {
+    series: seriesNettoyees,
+    ...(commentaire ? { commentaire } : {}),
+  },
+};
+
       });
 
       const nouvelleEntree = {

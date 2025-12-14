@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
-  Alert, Modal, FlatList, BackHandler, AppState, Platform
+  Alert, Modal, FlatList, BackHandler, AppState, Platform, TextInput
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, getDoc, getDocs, collection, addDoc } from 'firebase/firestore';
@@ -17,6 +17,9 @@ export default function LancerSeanceScreen({ route, navigation }) {
   const [exercicesTemp, setExercicesTemp] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [exoRemplacementIndex, setExoRemplacementIndex] = useState(null);
+
+  // ✅ recherche modal
+  const [searchExo, setSearchExo] = useState('');
 
   // session / draft refs
   const [sessionId] = useState(() => genSessionId());
@@ -235,18 +238,17 @@ export default function LancerSeanceScreen({ route, navigation }) {
           repetitions: Number(s?.repetitions) || 0,
         }));
         
-       const commentaire =
-  typeof perf.commentaire === 'string' ? perf.commentaire.trim() : '';
+        const commentaire =
+          typeof perf.commentaire === 'string' ? perf.commentaire.trim() : '';
 
-return {
-  idExercice: exoId,
-  nom: exo?.nom || 'Sans nom',
-  performances: {
-    series: seriesNettoyees,
-    ...(commentaire ? { commentaire } : {}),
-  },
-};
-
+        return {
+          idExercice: exoId,
+          nom: exo?.nom || 'Sans nom',
+          performances: {
+            series: seriesNettoyees,
+            ...(commentaire ? { commentaire } : {}),
+          },
+        };
       });
 
       const nouvelleEntree = {
@@ -272,8 +274,10 @@ return {
 
   const ouvrirModal = (index = null) => {
     setExoRemplacementIndex(index); // null = ajout
+    setSearchExo(''); // ✅ reset recherche
     setModalVisible(true);
   };
+
   const ajouterOuRemplacerExercice = (exoId) => {
     if (exoRemplacementIndex !== null) {
       const temp = [...exercicesTemp];
@@ -284,6 +288,17 @@ return {
     }
     setModalVisible(false);
   };
+
+  // ✅ liste triée + filtrée pour la modal
+  const exercicesModal = Object.values(exercicesMap)
+    .sort((a, b) =>
+      String(a?.nom || '').localeCompare(String(b?.nom || ''), 'fr', { sensitivity: 'base' })
+    )
+    .filter((e) => {
+      if (!searchExo.trim()) return true;
+      const q = searchExo.trim().toLowerCase();
+      return String(e?.nom || '').toLowerCase().includes(q);
+    });
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -318,9 +333,20 @@ return {
         <View style={styles.modalBackground}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Choisir un exercice</Text>
+
+            {/* ✅ barre de recherche */}
+            <TextInput
+              value={searchExo}
+              onChangeText={setSearchExo}
+              placeholder="Rechercher un exercice..."
+              placeholderTextColor="#888"
+              style={styles.searchInput}
+            />
+
             <FlatList
-              data={Object.values(exercicesMap)}
+              data={exercicesModal}
               keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
                 <TouchableOpacity
                   onPress={() => ajouterOuRemplacerExercice(item.id)}
@@ -330,6 +356,7 @@ return {
                 </TouchableOpacity>
               )}
             />
+
             <TouchableOpacity onPress={() => setModalVisible(false)}>
               <Text style={{ color: '#00aaff', textAlign: 'center', marginTop: 10 }}>Annuler</Text>
             </TouchableOpacity>
@@ -362,5 +389,15 @@ const styles = StyleSheet.create({
   modalBackground: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#2a2a2a', padding: 20, borderRadius: 10, width: '90%', maxHeight: '80%' },
   modalTitle: { color: '#00aaff', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
-  modalItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#444' }
+  modalItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#444' },
+
+  // ✅ style barre de recherche
+  searchInput: {
+    backgroundColor: '#1e1e1e',
+    color: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
 });

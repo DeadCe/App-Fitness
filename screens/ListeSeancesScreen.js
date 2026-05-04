@@ -79,9 +79,9 @@ export default function ListeSeancesScreen({ navigation }) {
               style={styles.carteCarree}
               onPress={() => {
                 if (estAuteur) {
-                  navigation.navigate('AjouterSeance', { index: seances.findIndex(s => s.id === item.id) });
+                  navigation.navigate('AjouterSeance', { id: item.id });
                 } else {
-                  navigation.navigate('ConsulterSeance', { index: seances.findIndex(s => s.id === item.id) });
+                  navigation.navigate('ConsulterSeance', { id: item.id });
                 }
               }}
             >
@@ -100,7 +100,7 @@ export default function ListeSeancesScreen({ navigation }) {
       {!afficherPubliques && (
         <TouchableOpacity
           style={styles.bulleButton}
-          onPress={() => navigation.navigate('AjouterSeance', { index: -1 })}
+          onPress={() => navigation.navigate('AjouterSeance', { id: null })}
         >
           <Text style={styles.buttonText}>Ajouter une séance</Text>
         </TouchableOpacity>

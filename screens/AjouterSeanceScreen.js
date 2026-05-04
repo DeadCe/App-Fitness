@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView } from 'react-native';
-import { collection, addDoc, updateDoc, doc, getDocs } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import { useIsFocused } from '@react-navigation/native';
 
 export default function AjouterSeanceScreen({ route, navigation }) {
-  const { index } = route.params;
+  const { id } = route.params || {};
   const [nom, setNom] = useState('');
   const [selection, setSelection] = useState([]); // tableau d'index locaux
   const [tousLesExercices, setTousLesExercices] = useState([]);
-  const [toutesLesSeances, setToutesLesSeances] = useState([]);
+  const [seanceEnEdition, setSeanceEnEdition] = useState(null);
 
   const isFocused = useIsFocused();
 
@@ -31,19 +31,30 @@ export default function AjouterSeanceScreen({ route, navigation }) {
           .filter(ex => ex.auteur === utilisateur.uid || ex.public === true);
         setTousLesExercices(exList);
 
-        // Récupère toutes les séances
-        const snapshot = await getDocs(collection(db, "seances"));
-        const seancesFirestore = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        setToutesLesSeances(seancesFirestore);
+        // Charge la séance à modifier
+        let seance = null;
+        if (id) {
+          const seanceSnap = await getDoc(doc(db, "seances", id));
+          if (!seanceSnap.exists()) {
+            Alert.alert("Erreur", "Séance non trouvée.");
+            navigation.goBack();
+            return;
+          }
+          seance = { id: seanceSnap.id, ...seanceSnap.data() };
+          setSeanceEnEdition(seance);
+        }
 
         // Mode édition
-        if (index >= 0 && seancesFirestore[index]) {
-          const seance = seancesFirestore[index];
+        if (seance) {
           setNom(seance.nom || '');
-          const indices = seance.exercices
+          const indices = (seance.exercices || [])
             .map(id => exList.findIndex(e => e.id === id))
             .filter(i => i !== -1);
           setSelection(indices);
+        } else {
+          setSeanceEnEdition(null);
+          setNom('');
+          setSelection([]);
         }
 
       } catch (err) {
@@ -53,7 +64,7 @@ export default function AjouterSeanceScreen({ route, navigation }) {
     };
 
     if (isFocused) charger();
-  }, [isFocused]);
+  }, [id, isFocused, navigation]);
 
   const toggleExercice = (i) => {
     setSelection((prev) =>
@@ -79,8 +90,8 @@ export default function AjouterSeanceScreen({ route, navigation }) {
         date: new Date().toISOString()
       };
 
-      if (index >= 0 && toutesLesSeances[index]) {
-        const seanceExistante = toutesLesSeances[index];
+      if (seanceEnEdition?.id) {
+        const seanceExistante = seanceEnEdition;
         nouvelleSeance.idMere = seanceExistante.idMere || seanceExistante.id;
         await updateDoc(doc(db, "seances", seanceExistante.id), nouvelleSeance);
         Alert.alert("Succès", "Séance modifiée !");
@@ -107,7 +118,7 @@ export default function AjouterSeanceScreen({ route, navigation }) {
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.title}>
-          {index >= 0 ? 'Modifier' : 'Ajouter'} une séance
+          {seanceEnEdition ? 'Modifier' : 'Ajouter'} une séance
         </Text>
       </View>
 

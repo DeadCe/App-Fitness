@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
-import { collection, getDocs, addDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, addDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { useIsFocused } from '@react-navigation/native';
-import { v4 as uuidv4 } from 'uuid';
 
 export default function ConsulterSeanceScreen({ route, navigation }) {
-  const { index } = route.params;
+  const { id } = route.params || {};
   const [nomSeance, setNomSeance] = useState('');
   const [exercices, setExercices] = useState([]);
   const [seanceCible, setSeanceCible] = useState(null);
@@ -21,14 +20,19 @@ export default function ConsulterSeanceScreen({ route, navigation }) {
         const exSnapshot = await getDocs(collection(db, "exercices"));
         const tousEx = exSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        const seanceSnapshot = await getDocs(collection(db, "seances"));
-        const toutes = seanceSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        const seance = toutes[index];
+        if (!id) {
+          Alert.alert("Erreur", "Séance non trouvée.");
+          navigation.goBack();
+          return;
+        }
+
+        const seanceSnap = await getDoc(doc(db, "seances", id));
+        const seance = seanceSnap.exists() ? { id: seanceSnap.id, ...seanceSnap.data() } : null;
 
         if (seance) {
           setNomSeance(seance.nom);
           setSeanceCible(seance);
-          const exercicesAssoc = seance.exercices.map(id => tousEx.find(e => e.id === id)).filter(Boolean);
+          const exercicesAssoc = (seance.exercices || []).map(id => tousEx.find(e => e.id === id)).filter(Boolean);
           setExercices(exercicesAssoc);
         } else {
           Alert.alert("Erreur", "Séance non trouvée.");
@@ -40,7 +44,7 @@ export default function ConsulterSeanceScreen({ route, navigation }) {
     };
 
     if (isFocused) charger();
-  }, [isFocused]);
+  }, [id, isFocused, navigation]);
 
   const dupliquerSeance = async () => {
     try {

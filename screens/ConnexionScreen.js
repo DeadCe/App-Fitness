@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { CommonActions } from '@react-navigation/native';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { collection, addDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase'; // Assure-toi que db est bien exporté dans firebase.js
 
 export default function ConnexionScreen({ navigation }) {
@@ -47,12 +47,12 @@ export default function ConnexionScreen({ navigation }) {
       const userCredential = await createUserWithEmailAndPassword(auth, identifiant, motDePasse);
       const user = userCredential.user;
 
-      await addDoc(collection(db, "utilisateurs"), {
+      await setDoc(doc(db, "utilisateurs", user.uid), {
         identifiant: identifiant,
         email: user.email,
         uid: user.uid,
         dateCreation: new Date()
-      });
+      }, { merge: true });
 
       navigation.dispatch(
         CommonActions.reset({

@@ -17,7 +17,6 @@ import ModifierUtilisateurScreen from './screens/ModifierUtilisateurScreen';
 import ParametresScreen from './screens/ParametresScreen';
 import AjouterExerciceScreen from './screens/AjouterExerciceScreen';
 import AjouterSeanceScreen from './screens/AjouterSeanceScreen';
-import SelectionSeanceScreen from './screens/SelectionSeanceScreen';
 import LancerSeanceScreen from './screens/LancerSeanceScreen';
 import SaisieExerciceScreen from './screens/SaisieExerciceScreen';
 import RecapitulatifSeanceScreen from './screens/RecapitulatifSeanceScreen';
@@ -91,19 +90,14 @@ export default function App() {
           )}
           <Stack.Screen name="AjouterExercice" component={AjouterExerciceScreen} />
           <Stack.Screen name="AjouterSeance" component={AjouterSeanceScreen} />
-          <Stack.Screen name="SelectionSeance" component={SelectionSeanceScreen} />
           <Stack.Screen name="LancerSeanceScreen" component={LancerSeanceScreen} />
           <Stack.Screen name="SaisieExercice" component={SaisieExerciceScreen} />
           <Stack.Screen name="RécapitulatifSéance" component={RecapitulatifSeanceScreen} />
           <Stack.Screen name="SeanceFreestyle" component={SeanceFreestyleScreen} />
           <Stack.Screen name="ListeExercice" component={ListeExercicesScreen} />
-          <Stack.Screen name="Accueil" component={AccueilScreen} />
-          <Stack.Screen name="Utilisateur" component={ModifierUtilisateurScreen} />
           <Stack.Screen name="ConsulterSeance" component={ConsulterSeanceScreen} />
           <Stack.Screen name="ConsulterExercice" component={ConsulterExerciceScreen} />
-          <Stack.Screen name="ModifierUtilisateur" component={ModifierUtilisateurScreen} />
           <Stack.Screen name="AjouterMesure" component={AjouterMesureScreen} options={{ title: 'Nouvelle mesure' }} />
-          <Stack.Screen name="HistoriqueSeances" component={HistoriqueSeancesScreen} options={{ headerShown:false }} />
           <Stack.Screen name="SeanceDetail" component={SeanceDetailScreen} options={{ headerShown:false }} />
         </Stack.Navigator>
       </NavigationContainer>

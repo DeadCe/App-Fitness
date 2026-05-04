@@ -95,10 +95,11 @@ return {
     }
 
     const nouvelleEntree = {
-      date: new Date().toISOString(),
+      date: new Date(),
       seance: 'Séance freestyle',
       utilisateurId: utilisateur.uid,
       exercices: exercicesEnregistrements,
+      terminee: true,
     };
     console.log('Nouvelle entrée prête à être sauvegardée:', nouvelleEntree);
 

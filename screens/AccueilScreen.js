@@ -32,6 +32,16 @@ function isEvenWeek(d = new Date()) {
   const weekNo = 1 + Math.round((date.getTime() - firstThursday.getTime()) / 604800000);
   return weekNo % 2 === 0;
 }
+function toJSDate(val) {
+  if (!val) return null;
+  try {
+    if (val?.toDate) return val.toDate();
+    const d = new Date(val);
+    return Number.isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+}
 /* ============================================ */
 
 export default function AccueilScreen({ navigation }) {
@@ -106,8 +116,16 @@ export default function AccueilScreen({ navigation }) {
           query(collection(db, "historiqueSeances"), where("utilisateurId", "==", user.uid))
         );
         const historiqueList = historiqueSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => new Date(b.date) - new Date(a.date));
+          .map(d => {
+            const data = d.data();
+            return {
+              id: d.id,
+              ...data,
+              dateJS: toJSDate(data.date) || toJSDate(data.createdAt),
+            };
+          })
+          .filter(item => item.dateJS)
+          .sort((a, b) => b.dateJS - a.dateJS);
 
         if (historiqueList.length > 0) {
           const derniere = historiqueList[0];
@@ -280,7 +298,7 @@ export default function AccueilScreen({ navigation }) {
             <>
               <Text style={styles.cardText}>{derniereSeance.nom || 'Nom non défini'}</Text>
               <Text style={styles.cardSubText}>
-                {new Date(derniereSeance.date).toLocaleString()}
+                {derniereSeance.dateJS?.toLocaleString() || 'Date inconnue'}
               </Text>
             </>
           ) : (

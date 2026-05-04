@@ -145,14 +145,20 @@ export default function HistoriqueSeancesScreen() {
       const q1 = query(
         collection(db, 'historiqueSeances'),
         where('utilisateurId', '==', user.uid),
-        orderBy('date', 'desc'),
-        limit(PAGE_SIZE)
+        limit(200)
       );
       const snap1 = await getDocs(q1);
-      const docs = snap1.docs.map((d) => ({ id: d.id, ...d.data(), __doc: d }));
-      lastDocRef.current = snap1.docs.length ? snap1.docs[snap1.docs.length - 1] : null;
-      setItems(docs.map(normalizeRow));
-      setCanPaginate(true);
+      let rows = snap1.docs.map((d) => ({ id: d.id, ...d.data() }));
+      rows = rows
+        .map((r) => ({
+          ...r,
+          _d: r.date ? toJSDate(r.date) : r.createdAt ? toJSDate(r.createdAt) : null,
+        }))
+        .filter((r) => r._d && !Number.isNaN(r._d))
+        .sort((a, b) => b._d - a._d);
+      setItems(rows.map(normalizeRow));
+      setCanPaginate(false);
+      lastDocRef.current = null;
     } catch {
       // fallback : tri côté client
       const q2 = query(
